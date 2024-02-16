@@ -29,15 +29,15 @@ GH::~GH() {
 	terminateVulkanInstance();
 }
 
-void GH::loop() {
+void GH::loop(std::vector<cbRecFunc> rectasks) {
 	vkAcquireNextImageKHR(logicaldevice,
 			      swapchain,
 			      UINT64_MAX,
-			      imageacquiredsemaphores[sciindex],
+			      imageacquiredsemaphores[fifindex],
 			      VK_NULL_HANDLE,
 			      &sciindex);
 	glfwPollEvents();
-	recordPrimaryCommandBuffer();
+	recordPrimaryCommandBuffer(rectasks);
 	submitAndPresent();
 	glfwSwapBuffers(primarywindow); // unsure of proper buffer swap timing
 	fifindex++;
@@ -160,6 +160,8 @@ void GH::initDevicesAndQueues() {
 		"VK_KHR_portability_subset"
 	};
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
+	physicaldevicefeatures.tessellationShader = VK_TRUE;
+	physicaldevicefeatures.fillModeNonSolid = VK_TRUE;
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		nullptr,
@@ -330,6 +332,7 @@ void GH::terminateFramebuffers() {
 	}
 	delete[] framebuffers;
 }
+
 void GH::initCommandPools() {
 	VkCommandPoolCreateInfo commandpoolci {
 		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -355,40 +358,44 @@ void GH::initCommandBuffers() {
 		GH_MAX_FRAMES_IN_FLIGHT,
 	};
 	vkAllocateCommandBuffers(logicaldevice, &commandbufferai, &primarycommandbuffers[0]);
+	commandbufferai.commandBufferCount = 1u;
+	vkAllocateCommandBuffers(logicaldevice, &commandbufferai, &interimcommandbuffer);
 }
 
 void GH::terminateCommandBuffers() {
+	vkFreeCommandBuffers(logicaldevice, commandpool, 1, &interimcommandbuffer);
 	vkFreeCommandBuffers(logicaldevice, commandpool, GH_MAX_FRAMES_IN_FLIGHT, &primarycommandbuffers[0]);
 	delete[] primarycommandbuffers;
 }
 
 void GH::initDescriptorPoolsAndSetLayouts() {
-	VkDescriptorPoolSize poolsizes[0];
+	VkDescriptorPoolSize poolsizes[3] {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
+	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		0,
-		0, nullptr
+		3,
+		3, &poolsizes[0]
 	};
-	// uncomment this and line in terminateDescriptorPoolsAndSetLayouts when we actually have a DS to alloc
-	// vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
+	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
 
 void GH::terminateDescriptorPoolsAndSetLayouts() {
-	// vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
+	vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
 }
 
 void GH::initSyncObjects() {
-	imageacquiredsemaphores = new VkSemaphore[numsci];
+	// sketchy as it is, we index these on fif instead of sci because sci gets updated on image acquisition
+	imageacquiredsemaphores = new VkSemaphore[GH_MAX_FRAMES_IN_FLIGHT];
 	VkSemaphoreCreateInfo imageacquiredsemaphorecreateinfo {
 		VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 		nullptr,
 		0
 	};
-	for (uint8_t scii = 0; scii < numsci; scii++) {
-		vkCreateSemaphore(logicaldevice, &imageacquiredsemaphorecreateinfo, nullptr, &imageacquiredsemaphores[scii]);
-	}
 	submitfinishedfences = new VkFence[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFenceCreateInfo submitfinishedfencecreateinfo {
 		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -402,6 +409,7 @@ void GH::initSyncObjects() {
 		0
 	};
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
+		vkCreateSemaphore(logicaldevice, &imageacquiredsemaphorecreateinfo, nullptr, &imageacquiredsemaphores[fifi]);
 		vkCreateFence(logicaldevice, &submitfinishedfencecreateinfo, nullptr, &submitfinishedfences[fifi]);
 		vkCreateSemaphore(logicaldevice, &submitfinishedsemaphorecreateinfo, nullptr, &submitfinishedsemaphores[fifi]);
 	}
@@ -409,7 +417,7 @@ void GH::initSyncObjects() {
 
 void GH::terminateSyncObjects() {
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
-		if (fifi < numsci) vkDestroySemaphore(logicaldevice, imageacquiredsemaphores[fifi], nullptr);
+		vkDestroySemaphore(logicaldevice, imageacquiredsemaphores[fifi], nullptr);
 		vkDestroyFence(logicaldevice, submitfinishedfences[fifi], nullptr);
 		vkDestroySemaphore(logicaldevice, submitfinishedsemaphores[fifi], nullptr);
 	}
@@ -713,6 +721,66 @@ void GH::destroyShader(VkShaderModule shader) {
 	vkDestroyShaderModule(logicaldevice, shader, nullptr);
 }
 
+void GH::createDescriptorSet(
+		VkDescriptorSet& ds,
+		VkDescriptorSetLayout& dsl,
+		std::vector<VkDescriptorType> type,
+		VkDescriptorImageInfo* ii,
+		VkDescriptorBufferInfo* bi) {
+	VkDescriptorSetAllocateInfo descriptorsetai {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		nullptr,
+		descriptorpool,
+		1, &dsl
+	};
+	vkAllocateDescriptorSets(logicaldevice, &descriptorsetai, &ds);
+
+	// could technically do this as a batch write
+	for (uint8_t i = 0; i < type.size(); i++ ) {
+		VkWriteDescriptorSet write {
+			VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			nullptr,
+			ds,
+			i,
+			0,
+			1,
+			type[i],
+			&ii[i], &bi[i], nullptr
+		};
+		vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+	}
+}
+
+void GH::destroyDescriptorSet(VkDescriptorSet& ds) {
+	// commented out as currently descriptor pool does not allow for freeing
+	// vkFreeDescriptorSets(logicaldevice, descriptorpool, 1, &ds);
+}
+
+void GH::createSampler (
+	VkSampler& s,
+	VkFilter filter,
+	VkSamplerAddressMode addrmode) {
+	VkSamplerCreateInfo samplerci {
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr, 0,
+		filter, filter,
+		VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		addrmode, addrmode, addrmode,
+		0.,
+		VK_FALSE, 0.,
+		VK_FALSE, VK_COMPARE_OP_NEVER,
+		0., 0., 
+		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+		VK_FALSE
+	};
+
+	vkCreateSampler(logicaldevice, &samplerci, nullptr, &s);
+}
+
+void GH::destroySampler(VkSampler& s) {
+	vkDestroySampler(logicaldevice, s, nullptr);
+}
+
 void GH::allocateDeviceMemory(
 	const VkBuffer& buffer,
 	const VkImage& image,
@@ -753,6 +821,63 @@ void GH::freeDeviceMemory(VkDeviceMemory& memory) {
 	vkFreeMemory(logicaldevice, memory, nullptr);
 }
 
+void GH::createBuffer(BufferInfo& bi) {
+	VkBufferCreateInfo buffercreateinfo {
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		bi.size,
+		bi.usage,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0,
+		nullptr
+	};
+	vkCreateBuffer(logicaldevice, &buffercreateinfo, nullptr, &bi.buffer);
+	allocateDeviceMemory(bi.buffer, VK_NULL_HANDLE, bi.memory, bi.memprops);
+	vkBindBufferMemory(logicaldevice, bi.buffer, bi.memory, 0);
+}
+
+void GH::destroyBuffer(BufferInfo& bi) {
+	vkDestroyBuffer(logicaldevice, bi.buffer, nullptr);
+	freeDeviceMemory(bi.memory);
+}
+
+void GH::createVertexAndIndexBuffers(
+	BufferInfo& vbi,
+	BufferInfo& ibi,
+	const std::vector<Vertex>& vertices,
+	const std::vector<Index>& indices) {
+	vbi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	vbi.memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	vbi.size = vertices.size() * sizeof(Vertex);
+	createBuffer(vbi);
+	
+	interimbuffer.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	interimbuffer.memprops = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+	interimbuffer.size = vbi.size;
+	createBuffer(interimbuffer);
+	void* interimbufferdata;
+	vkMapMemory(logicaldevice, interimbuffer.memory, 0u, vbi.size, 0u, &interimbufferdata);
+	memcpy(interimbufferdata, vertices.data(), vbi.size);
+	vkUnmapMemory(logicaldevice, interimbuffer.memory);
+	copyBufferToBuffer(interimbuffer, vbi);
+	destroyBuffer(interimbuffer);
+
+	ibi.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	ibi.memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	ibi.size = indices.size() * sizeof(Index);
+	createBuffer(ibi);
+
+	interimbuffer.size = ibi.size;
+	createBuffer(interimbuffer);
+	vkMapMemory(logicaldevice, interimbuffer.memory, 0u, ibi.size, 0u, &interimbufferdata);
+	memcpy(interimbufferdata, indices.data(), ibi.size);
+	vkUnmapMemory(logicaldevice, interimbuffer.memory);
+	copyBufferToBuffer(interimbuffer, ibi);
+
+	destroyBuffer(interimbuffer);
+}
+
 void GH::createImage(ImageInfo& i) {
 	VkImageCreateInfo imageci {
 		VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -778,6 +903,51 @@ void GH::createImage(ImageInfo& i) {
 	VkImageAspectFlags aspect = (i.format == VK_FORMAT_D32_SFLOAT) ? 
 		VK_IMAGE_ASPECT_DEPTH_BIT : 
 		VK_IMAGE_ASPECT_COLOR_BIT;
+
+	if (i.layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+		VkCommandBufferBeginInfo commandbufferbi {
+			VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			nullptr,
+			VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+			nullptr
+		};
+		VkImageMemoryBarrier imgmembarrier {
+			VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			nullptr,
+			0,
+			0,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			i.layout,
+			VK_QUEUE_FAMILY_IGNORED,
+			VK_QUEUE_FAMILY_IGNORED,
+			i.image,
+			{aspect, 0, 1, 0, 1}
+		};
+		VkPipelineStageFlags srcmask = VK_PIPELINE_STAGE_HOST_BIT, dstmask = 0u;
+		if (i.layout == VK_IMAGE_LAYOUT_GENERAL) {
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		else {
+			throw std::runtime_error("createImage error: unsupported image layout");
+		}
+		vkBeginCommandBuffer(interimcommandbuffer, &commandbufferbi);
+		vkCmdPipelineBarrier(interimcommandbuffer, srcmask, dstmask, 0, 0, nullptr, 0, nullptr, 1,
+							 &imgmembarrier);
+		vkEndCommandBuffer(interimcommandbuffer);
+		VkSubmitInfo subinfo {
+			VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			nullptr,
+			0,
+			nullptr,
+			nullptr,
+			1, &interimcommandbuffer,
+			0, nullptr
+		};
+		vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(genericqueue);
+	}
+
 	VkImageViewCreateInfo imageviewci {
 		VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		nullptr,
@@ -800,7 +970,48 @@ void GH::destroyImage(ImageInfo& i) {
 	vkDestroyImage(logicaldevice, i.image, nullptr);
 }
 
-void GH::recordPrimaryCommandBuffer() {
+void GH::updateHostCoherentBuffer(BufferInfo& bi, void* data) {
+	void* dst;
+	vkMapMemory(
+		logicaldevice,
+		bi.memory,
+		0u,
+		bi.size,
+		0u,
+		&dst
+	);
+	memcpy(dst, data, bi.size);
+	vkUnmapMemory(logicaldevice, bi.memory);
+}
+
+void GH::copyBufferToBuffer(BufferInfo& src, BufferInfo& dst) {
+	VkDeviceSize size = std::max(src.size, dst.size);
+	VkBufferCopy region {0, 0, size};
+	VkCommandBufferBeginInfo cmdbuffbegininfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+		nullptr
+	};
+	vkBeginCommandBuffer(interimcommandbuffer, &cmdbuffbegininfo);
+	vkCmdCopyBuffer(interimcommandbuffer, src.buffer, dst.buffer, 1, &region);
+	vkEndCommandBuffer(interimcommandbuffer);
+	VkSubmitInfo subinfo {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		0,
+		nullptr,
+		nullptr,
+		1,
+		&interimcommandbuffer,
+		0,
+		nullptr
+	};
+	vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(genericqueue);
+}
+
+void GH::recordPrimaryCommandBuffer(std::vector<cbRecFunc> rectasks) {
 	VkCommandBufferBeginInfo primarycommandbufferbi {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		nullptr,
@@ -809,6 +1020,9 @@ void GH::recordPrimaryCommandBuffer() {
 	};
 	vkWaitForFences(logicaldevice, 1, &submitfinishedfences[fifindex], VK_FALSE, UINT64_MAX);
 	vkBeginCommandBuffer(primarycommandbuffers[fifindex], &primarycommandbufferbi);
+
+	rectasks[1](primarycommandbuffers[fifindex]);
+
 	VkRenderPassBeginInfo rpbi {
 		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		nullptr,
@@ -820,6 +1034,9 @@ void GH::recordPrimaryCommandBuffer() {
 	};
 	vkCmdBeginRenderPass(primarycommandbuffers[fifindex], &rpbi, VK_SUBPASS_CONTENTS_INLINE);
 
+	rectasks[0](primarycommandbuffers[fifindex]);
+	//for (auto rt : rectasks) rt(primarycommandbuffers[fifindex]);
+
 	vkCmdEndRenderPass(primarycommandbuffers[fifindex]);
 	vkEndCommandBuffer(primarycommandbuffers[fifindex]);
 }
@@ -830,7 +1047,7 @@ void GH::submitAndPresent() {
 	VkSubmitInfo submitinfo {
 		VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		nullptr,
-		1, &imageacquiredsemaphores[sciindex],
+		1, &imageacquiredsemaphores[fifindex],
 		&waitstage,
 		1, &primarycommandbuffers[fifindex],
 		1, &submitfinishedsemaphores[fifindex]
