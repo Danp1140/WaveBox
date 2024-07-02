@@ -15,6 +15,10 @@ add_executable(WaveBox src/main.cpp
 	src/GraphicsHandler.cpp src/GraphicsHandler.h 
 	src/Ocean.cpp src/Ocean.h
 	src/Camera.cpp src/Camera.h
+	src/Scene.cpp src/Scene.h
+	src/Drawable.cpp src/Drawable.h
+	src/Mesh.cpp src/Mesh.h
 )
 
-target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 glfw3 -m64)
+# using an outdated libpng.a because my up-to-date build for the headers we're using didn't provide me one lol
+target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 glfw3 z png -m64)

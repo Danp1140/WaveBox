@@ -1,10 +1,12 @@
 #include "Camera.h"
 
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
-
 #include <iostream>
 #include <fstream>
+
+#include <vulkan/vk_enum_string_helper.h>
+#include <libpng/png.h>
+
+// #define VERBOSE_BUFFER_CREATION
 
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define GH_MAX_FRAMES_IN_FLIGHT 6
@@ -41,6 +43,27 @@ typedef struct ImageInfo {
 	VkFormat format = VK_FORMAT_UNDEFINED;
 	VkImageUsageFlags usage = 0u;
 	VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImageType type = VK_IMAGE_TYPE_2D;
+	VkImageViewType viewtype = VK_IMAGE_VIEW_TYPE_2D;
+	uint8_t numlayers = 1;
+
+	size_t pixelSize() {
+		switch (format) {
+			case VK_FORMAT_D32_SFLOAT:
+				return 4u;
+			case VK_FORMAT_R8G8B8A8_SRGB:
+				return 4u;
+			default:
+				return -1u;
+		}
+	}
+
+	static uint32_t uint32rgba8FromVec4(glm::vec4 color) {
+		return uint32_t((float)0xff000000 * color.a)
+			| uint32_t((float)0x00ff0000 * color.b)
+			| uint32_t((float)0x0000ff00 * color.g)
+			| uint32_t((float)0x000000ff * color.r);
+	}
 } ImageInfo;
 
 typedef struct PipelineInfo {
@@ -63,7 +86,15 @@ typedef struct PipelineInfo {
 typedef struct Vertex {
 	glm::vec3 position;
 	glm::vec2 uv;
+	glm::vec3 norm;
 } Vertex;
+
+static const VkCommandBufferBeginInfo interimcommandbufferbi {
+	VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	nullptr,
+	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	nullptr
+};
 
 typedef uint16_t Index;
 
@@ -77,10 +108,13 @@ typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
 
 class GH {
 public:
+	GLFWwindow* primarywindow;
+	VkDevice logicaldevice; // made public to enable certain VK function calls in other classes
+
 	GH();
 	~GH();
 
-	void loop(std::vector<cbRecFunc> rectasks);
+	void loop(cbRecFunc* rectasks);
 
 	// This seems pretty ham-fisted...
 	void waitIdle() {vkQueueWaitIdle(genericqueue);}
@@ -95,6 +129,12 @@ public:
 		std::vector<VkDescriptorType> type,
 		VkDescriptorImageInfo* ii,
 		VkDescriptorBufferInfo* bi);
+	void updateDescriptorSet(
+		VkDescriptorSet ds,
+		uint32_t index,
+		VkDescriptorType type,
+		VkDescriptorImageInfo ii,
+		VkDescriptorBufferInfo bi);
 	void destroyDescriptorSet(VkDescriptorSet& ds);
 	void createSampler(
 		VkSampler& s,
@@ -113,16 +153,18 @@ public:
 	 * in i before calling createImage.
 	 */
 	void createImage(ImageInfo& i);
-	void destroyImage(ImageInfo& i);
+	void destroyImage(ImageInfo& i);	
 
 	void updateHostCoherentBuffer(BufferInfo& bi, void* data);
+	void updateImage(ImageInfo& ii, void* data);
+	void submitInterimCB();
+
+	VkCommandBuffer getInterimCommandBuffer() {return interimcommandbuffer;}
 
 private:
-	GLFWwindow* primarywindow;
 	VkInstance instance;
 	VkSurfaceKHR primarysurface;
 	VkDebugUtilsMessengerEXT debugmessenger;
-	VkDevice logicaldevice;
 	VkPhysicalDevice physicaldevice;
 	VkQueue genericqueue;
 	VkSwapchainKHR swapchain;
@@ -138,7 +180,7 @@ private:
 	// TODO: re-check which of these are necessary after getting a bare-bones draw loop finished
 	VkSemaphore* imageacquiredsemaphores,* submitfinishedsemaphores;
 	VkFence* submitfinishedfences;
-	const VkClearValue primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
+	const VkClearValue primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 1.};
 	BufferInfo interimbuffer;
 
 	/*
@@ -204,8 +246,9 @@ private:
 	void freeDeviceMemory(VkDeviceMemory& memory);
 
 	void copyBufferToBuffer(BufferInfo& src, BufferInfo& dst);
+	void copyBufferToImage(BufferInfo& src, ImageInfo& dst);
 
-	void recordPrimaryCommandBuffer(std::vector<cbRecFunc> rectasks);
+	void recordPrimaryCommandBuffer(cbRecFunc* rectasks);
 	void submitAndPresent();
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL validationCallback(

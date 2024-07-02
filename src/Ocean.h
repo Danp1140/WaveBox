@@ -1,34 +1,76 @@
-#include "GraphicsHandler.h"
+#include "Mesh.h"
 
 #define HEIGHT_MAP_RESOLUTION 2048
+#define DEPTH_MAP_RESOLUTION 16 // in texels/m
+#define MAX_SHOALING_WAVES 8;
 
-typedef struct OceanGraphicsPCData {
-	glm::mat4 cameravp;
-	alignas(16) glm::vec3 camerapos;
-} OceanGraphicsPCData;
+typedef enum OceanComputeFlagBits {
+	OCEAN_COMPUTE_FLAG_DEPTH_MAP_CHANGE = 0x00000001
+} OceanComputeFlagBits;
+
+typedef uint32_t OceanComputeFlags;
 
 typedef struct OceanComputePCData {
 	float t;
+	OceanComputeFlags flags;
 } OceanComputePCData;
+
+typedef struct DepthPCData {
+	glm::mat4 cameravp;
+} DepthPCData;
 
 // in GLSL, we can use aliasing to access different kinds of waves accurately!
 typedef enum WaveType {
 	WAVE_TYPE_LINEAR
 } WaveType;
 
+// function type hard to implement given that GLSL doesn't have function pointers
 typedef enum DepthType {
 	DEPTH_TYPE_CONSTANT,
+	// DEPTH_TYPE_FUNCTION,
 	DEPTH_TYPE_MAPPED
 } DepthType;
 
-typedef struct LinearWaveData {
-	float H, k, omega, d;
+// typedef std::function<float (float, float)> depthFunc;
 
-	LinearWaveData(float height, float length, float depth) {
+typedef struct DepthData {
+	DepthType type;
+	union {
+		float d;
+		//depthFunc df;
+		ImageInfo dm;
+	};
+} DepthData;
+
+// as we implement depth mapping, we may need to rethink how we calculate and
+// access members that fluctuate with depth
+typedef struct LinearWaveData {
+	glm::vec2 k = glm::vec2(0.);
+	float H = 0., omega = 0., d = 0.;
+	
+	ImageInfo kmap = {}; // this shouldn't get sent over to the shader
+
+	LinearWaveData(float height, float length, float depth, glm::vec2 khat) {
 		H = height;
-		k = 6.28 / length;
+		float Kmag = 6.28 / length;
+		k = Kmag * glm::normalize(khat);
 		d = depth;
-		omega = sqrt(9.8 * k * tanh(k * d));
+		omega = sqrt(9.8 * Kmag * tanh(Kmag * d));
+	}
+
+	void addkMap(GH* g, ImageInfo& depth) {
+		kmap.extent = {depth.extent.width, depth.extent.height};
+		kmap.format = VK_FORMAT_R16G16_SFLOAT;
+		kmap.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+		kmap.layout = VK_IMAGE_LAYOUT_GENERAL;
+		g->createImage(kmap);
+	}
+
+	void print() {
+		std::cout << "LinearWaveData {\n\tH = "
+			<< H << "\n\tomega = " 
+			<< omega << "\n\td = "
+			<< d << "\n\tk = {" << k.x << ", " << k.y << "}\n}" << std::endl;
 	}
 } LinearWaveData;
 
@@ -46,46 +88,68 @@ typedef struct Wave {
 	}
 } Wave;
 
-
-
 /* 
- * if/when we implement any other kind of object that is rendered, we should probably have a superclass that ensures
+ * if/when we implement any other kind of object that is rendered, we should probably have a subclass that ensures
  * things like having a pipeline & command buffer recording functions.
  */
-class Ocean {
+class Ocean : public Drawable {
 public:
-	static PipelineInfo graphicspipeline, computepipeline;
+	static PipelineInfo graphicspipeline, computepipeline, propertycomputepipeline;
+	PipelineInfo depthpipeline;
+	VkRenderPass depthrenderpass;
+	VkFramebuffer depthframebuffer;
+	Mesh* floor;
 
+	Ocean();
 	Ocean(GH* g);
 	~Ocean();
 
-	BufferInfo * getVertexBufferPtr() {return &vertexbuffer;}
-	BufferInfo * getIndexBufferPtr() {return &indexbuffer;}
-	OceanGraphicsPCData * getGraphicsPCDataPtr() {return &graphicspcdata;}
+	DTHGraphicsPCData * getGraphicsPCDataPtr() {return &graphicspcdata;}
 	OceanComputePCData * getComputePCDataPtr() {return &computepcdata;}
-	VkDescriptorSet getGraphicsDescriptorSet() {return graphicsdescriptorset;}
 	VkDescriptorSet getComputeDescriptorSet() {return computedescriptorset;}
+	VkDescriptorSet getPropertyComputeDescriptorSet() {return propertycomputedescriptorset;}
 
 	// Also inits heightmapsampler
 	static void initGraphicsPipeline();
 	static void initComputePipeline();
+	void initDepthPipeline();
 	static void terminatePipelines();
 	static void recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data);
 	static void recordComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data);
+	static void recordPropertyComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data);
+	void attachEnvMap(ImageInfo& ii, VkSampler s);
+
+	static std::vector<Wave> piersonMoskowitzSample(uint8_t n);
 
 private:
-	static GH* gh;
-	static VkSampler heightmapsampler;
-	BufferInfo vertexbuffer, indexbuffer, wavebuffer;
-	ImageInfo heightmap;
-	OceanGraphicsPCData graphicspcdata;
+	BufferInfo wavebuffer;
+	ImageInfo heightmap, depthmap;
+	DTHGraphicsPCData graphicspcdata;
 	OceanComputePCData computepcdata;
-	VkDescriptorSet graphicsdescriptorset, computedescriptorset;
+	VkDescriptorSet computedescriptorset, propertycomputedescriptorset;
+	float scale;
+	uint8_t presubdivision;
+	bool sidewalls;
 
 	std::vector<Wave> waves;
 
+	void initRenderpass();
+	void terminateRenderpass();
+	void initFramebuffer();
+	void terminateFramebuffer();
 	void initBuffers();
 	void terminateBuffers();
 	void initDescriptorSets();
 	void terminateDescriptorSets();
+
+	static float piersonMoskowitz(float f, float U10);
+
+	static float inverseDispersionRelation(float omega, float d);
+
+	void generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indices);
+
+	void renderDepthMap();
+
+	// below is in lieu of above, ideally we're able to import in the future
+	void generateDepthMap();
 };

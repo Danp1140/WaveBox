@@ -29,10 +29,10 @@ GH::~GH() {
 	terminateVulkanInstance();
 }
 
-void GH::loop(std::vector<cbRecFunc> rectasks) {
+void GH::loop(cbRecFunc* rectasks) {
 	vkAcquireNextImageKHR(logicaldevice,
 			      swapchain,
-			      UINT64_MAX,
+			      2000,
 			      imageacquiredsemaphores[fifindex],
 			      VK_NULL_HANDLE,
 			      &sciindex);
@@ -370,15 +370,15 @@ void GH::terminateCommandBuffers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		3,
+		12,
 		3, &poolsizes[0]
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -737,6 +737,7 @@ void GH::createDescriptorSet(
 
 	// could technically do this as a batch write
 	for (uint8_t i = 0; i < type.size(); i++ ) {
+		// if ((!ii || ii[i].sampler == VK_NULL_HANDLE) && (!bi || bi[i].buffer == VK_NULL_HANDLE)) continue;
 		VkWriteDescriptorSet write {
 			VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			nullptr,
@@ -749,6 +750,26 @@ void GH::createDescriptorSet(
 		};
 		vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
 	}
+}
+
+void GH::updateDescriptorSet(
+		VkDescriptorSet ds,
+		uint32_t index,
+		VkDescriptorType type,
+		VkDescriptorImageInfo ii,
+		VkDescriptorBufferInfo bi) {
+	VkWriteDescriptorSet write {
+		VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		nullptr,
+		ds,
+		index,
+		0,
+		1,
+		type,
+		&ii, &bi, nullptr
+	};
+	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+
 }
 
 void GH::destroyDescriptorSet(VkDescriptorSet& ds) {
@@ -835,6 +856,10 @@ void GH::createBuffer(BufferInfo& bi) {
 	vkCreateBuffer(logicaldevice, &buffercreateinfo, nullptr, &bi.buffer);
 	allocateDeviceMemory(bi.buffer, VK_NULL_HANDLE, bi.memory, bi.memprops);
 	vkBindBufferMemory(logicaldevice, bi.buffer, bi.memory, 0);
+
+#ifdef VERBOSE_BUFFER_CREATION 
+	std::cout << "buf created @ " << bi.buffer << " w/ usage " << string_VkBufferUsageFlags(bi.usage) << std::endl;
+#endif
 }
 
 void GH::destroyBuffer(BufferInfo& bi) {
@@ -882,12 +907,12 @@ void GH::createImage(ImageInfo& i) {
 	VkImageCreateInfo imageci {
 		VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		nullptr,
-		0,
-		VK_IMAGE_TYPE_2D,
+		VkImageCreateFlags(i.viewtype == VK_IMAGE_VIEW_TYPE_CUBE ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0),
+		i.type,
 		i.format,
 		{i.extent.width, i.extent.height, 1},
 		1,
-		1,
+		i.numlayers,
 		VK_SAMPLE_COUNT_1_BIT,
 		VK_IMAGE_TILING_OPTIMAL,
 		i.usage,
@@ -905,12 +930,6 @@ void GH::createImage(ImageInfo& i) {
 		VK_IMAGE_ASPECT_COLOR_BIT;
 
 	if (i.layout != VK_IMAGE_LAYOUT_UNDEFINED) {
-		VkCommandBufferBeginInfo commandbufferbi {
-			VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-			nullptr,
-			VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-			nullptr
-		};
 		VkImageMemoryBarrier imgmembarrier {
 			VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			nullptr,
@@ -921,31 +940,25 @@ void GH::createImage(ImageInfo& i) {
 			VK_QUEUE_FAMILY_IGNORED,
 			VK_QUEUE_FAMILY_IGNORED,
 			i.image,
-			{aspect, 0, 1, 0, 1}
+			{aspect, 0, 1, 0, i.numlayers}
 		};
 		VkPipelineStageFlags srcmask = VK_PIPELINE_STAGE_HOST_BIT, dstmask = 0u;
 		if (i.layout == VK_IMAGE_LAYOUT_GENERAL) {
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
 			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 		}
+		else if (i.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
 		else {
 			throw std::runtime_error("createImage error: unsupported image layout");
 		}
-		vkBeginCommandBuffer(interimcommandbuffer, &commandbufferbi);
+		vkBeginCommandBuffer(interimcommandbuffer, &interimcommandbufferbi);
 		vkCmdPipelineBarrier(interimcommandbuffer, srcmask, dstmask, 0, 0, nullptr, 0, nullptr, 1,
 							 &imgmembarrier);
 		vkEndCommandBuffer(interimcommandbuffer);
-		VkSubmitInfo subinfo {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0,
-			nullptr,
-			nullptr,
-			1, &interimcommandbuffer,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
-		vkQueueWaitIdle(genericqueue);
+		submitInterimCB();
 	}
 
 	VkImageViewCreateInfo imageviewci {
@@ -953,13 +966,13 @@ void GH::createImage(ImageInfo& i) {
 		nullptr,
 		0,
 		i.image,
-		VK_IMAGE_VIEW_TYPE_2D,
+		i.viewtype,
 		i.format,
 		{VK_COMPONENT_SWIZZLE_IDENTITY,
 		 VK_COMPONENT_SWIZZLE_IDENTITY,
 		 VK_COMPONENT_SWIZZLE_IDENTITY,
 		 VK_COMPONENT_SWIZZLE_IDENTITY},
-		{aspect, 0, 1, 0, 1}
+		{aspect, 0, 1, 0, i.numlayers}
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 }
@@ -984,6 +997,20 @@ void GH::updateHostCoherentBuffer(BufferInfo& bi, void* data) {
 	vkUnmapMemory(logicaldevice, bi.memory);
 }
 
+void GH::updateImage(ImageInfo& ii, void* data) {
+	size_t bufsize = ii.extent.width * ii.extent.height * ii.numlayers * ii.pixelSize();
+	interimbuffer.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	interimbuffer.memprops = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+	interimbuffer.size = bufsize;
+	createBuffer(interimbuffer);
+	void* interimbufferdata;
+	vkMapMemory(logicaldevice, interimbuffer.memory, 0u, bufsize, 0u, &interimbufferdata);
+	memcpy(interimbufferdata, data, bufsize);
+	vkUnmapMemory(logicaldevice, interimbuffer.memory);
+	copyBufferToImage(interimbuffer, ii);
+	destroyBuffer(interimbuffer);
+}
+
 void GH::copyBufferToBuffer(BufferInfo& src, BufferInfo& dst) {
 	VkDeviceSize size = std::max(src.size, dst.size);
 	VkBufferCopy region {0, 0, size};
@@ -996,22 +1023,26 @@ void GH::copyBufferToBuffer(BufferInfo& src, BufferInfo& dst) {
 	vkBeginCommandBuffer(interimcommandbuffer, &cmdbuffbegininfo);
 	vkCmdCopyBuffer(interimcommandbuffer, src.buffer, dst.buffer, 1, &region);
 	vkEndCommandBuffer(interimcommandbuffer);
-	VkSubmitInfo subinfo {
-		VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		nullptr,
-		0,
-		nullptr,
-		nullptr,
-		1,
-		&interimcommandbuffer,
-		0,
-		nullptr
-	};
-	vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(genericqueue);
+	submitInterimCB();
 }
 
-void GH::recordPrimaryCommandBuffer(std::vector<cbRecFunc> rectasks) {
+void GH::copyBufferToImage(BufferInfo& src, ImageInfo& dst) {
+	VkImageSubresourceLayers layers {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, dst.numlayers};
+	if (dst.format == VK_FORMAT_D32_SFLOAT) layers.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	VkBufferImageCopy region {0, dst.extent.width, dst.extent.height, layers, {0, 0, 0}, {dst.extent.width, dst.extent.height, 1}};
+	VkCommandBufferBeginInfo cmdbuffbegininfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+		nullptr
+	};
+	vkBeginCommandBuffer(interimcommandbuffer, &cmdbuffbegininfo);
+	vkCmdCopyBufferToImage(interimcommandbuffer, src.buffer, dst.image, dst.layout, 1, &region);
+	vkEndCommandBuffer(interimcommandbuffer);
+	submitInterimCB();
+}
+
+void GH::recordPrimaryCommandBuffer(cbRecFunc* rectasks) {
 	VkCommandBufferBeginInfo primarycommandbufferbi {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		nullptr,
@@ -1021,6 +1052,9 @@ void GH::recordPrimaryCommandBuffer(std::vector<cbRecFunc> rectasks) {
 	vkWaitForFences(logicaldevice, 1, &submitfinishedfences[fifindex], VK_FALSE, UINT64_MAX);
 	vkBeginCommandBuffer(primarycommandbuffers[fifindex], &primarycommandbufferbi);
 
+	if (rectasks[4] != nullptr) {
+		rectasks[4](primarycommandbuffers[fifindex]);
+	}
 	rectasks[1](primarycommandbuffers[fifindex]);
 
 	VkRenderPassBeginInfo rpbi {
@@ -1034,6 +1068,9 @@ void GH::recordPrimaryCommandBuffer(std::vector<cbRecFunc> rectasks) {
 	};
 	vkCmdBeginRenderPass(primarycommandbuffers[fifindex], &rpbi, VK_SUBPASS_CONTENTS_INLINE);
 
+	rectasks[3](primarycommandbuffers[fifindex]);
+
+	rectasks[2](primarycommandbuffers[fifindex]);
 	rectasks[0](primarycommandbuffers[fifindex]);
 	//for (auto rt : rectasks) rt(primarycommandbuffers[fifindex]);
 
@@ -1064,13 +1101,28 @@ void GH::submitAndPresent() {
 	vkQueuePresentKHR(genericqueue, &presentinfo);
 }
 
+void GH::submitInterimCB() {
+	VkSubmitInfo subinfo {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		0,
+		nullptr,
+		nullptr,
+		1, &interimcommandbuffer,
+		0, nullptr
+	};
+	vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(genericqueue);
+}
+
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT severity,
 		VkDebugUtilsMessageTypeFlagsEXT type,
 		const VkDebugUtilsMessengerCallbackDataEXT* callbackdata,
 		void* userdata) {
-	if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
-	 || severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+	if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+	 || severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+	 && callbackdata->messageIdNumber != 1303270965) {
 		std::cout << "----- Validation Error -----\n";
 		std::cout << callbackdata->pMessage << std::endl;
 	}
