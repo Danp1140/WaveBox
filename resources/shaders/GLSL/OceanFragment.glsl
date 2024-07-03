@@ -56,7 +56,7 @@ void main() {
 		color=fresnel*diffuse;
 		color.a=1./fresnel;
 	}
-	//color = pow((vec4(1) * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
-	//color = diffuse;
-	// color.w = 1.;
+	// color = pow((vec4(1.) * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
+	color = vec4(1, uv.x, 0, 1);
+	color.w = 1.;
 }

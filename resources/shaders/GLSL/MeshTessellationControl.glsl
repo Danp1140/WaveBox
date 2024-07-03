@@ -1,7 +1,7 @@
 #version 460
 
-#define MAX_TESS_LEVEL_OUTER 4
-#define MAX_TESS_LEVEL_INNER 4
+#define MAX_TESS_LEVEL_OUTER 16
+#define MAX_TESS_LEVEL_INNER 16
 
 layout(vertices=3) out;
 

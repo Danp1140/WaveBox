@@ -13,7 +13,7 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	scale = 100.;
 	floor = new Mesh(); // bodgey workaround to have dummy AABB for framebuffer creation, TODO: refine later
 
-	LinearWaveData ltemp = LinearWaveData(2.0, 30.0, 100.0, glm::vec2(1., 1.));
+	LinearWaveData ltemp = LinearWaveData(1.0, 15.0, 100.0, glm::vec2(1., 1.));
 	waves.emplace_back(ltemp, DEPTH_TYPE_CONSTANT);
 	//ltemp = LinearWaveData(1.0, 7.0, 5.0, glm::vec2(1., 0.));
 	//ltemp = LinearWaveData(1.0, 10.0, 100.0, glm::vec2(1., 0.));
@@ -658,9 +658,13 @@ void Ocean::generateDepthMap() {
 	float *data = new float[depthmap.extent.width * depthmap.extent.height];
 	for (uint32_t x = 0; x < depthmap.extent.width; x++) {
 		for (uint32_t y = 0; y < depthmap.extent.height; y++) {
+			/*
 			data[x * depthmap.extent.height + y] = sqrt(pow(float(x) / float(depthmap.extent.width), 2.) + pow(float(y) / float(depthmap.extent.height), 2.)) 
 				* sqrt(float(x) / float(depthmap.extent.width) * 10.) 
 				* 10. - 30.; 
+				*/
+			// data[x * depthmap.extent.height + y] = -0.5 - pow(10 * (float(y) / depthmap.extent.height - 0.5), 2) - pow(5 * (float(x) / depthmap.extent.width - 0.5), 2);
+			data[x * depthmap.extent.height + y] = 0.;
 		}
 	}
 	gh->updateImage(depthmap, reinterpret_cast<void*>(data));

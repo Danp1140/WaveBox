@@ -1,2 +1,2 @@
-fswatch --event Updated resources/shaders/glsl/*.glsl | xargs -n1 -I{} "/Users/danp/Desktop/C Coding/wavebox/resources/shaders/compile.sh"
+fswatch -or "/Users/danp/desktop/c coding/wavebox/resources/shaders/glsl" | xargs -n1 -I{} "/Users/danp/desktop/c coding/wavebox/resources/shaders/compile.sh"
 
