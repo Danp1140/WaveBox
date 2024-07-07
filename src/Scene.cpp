@@ -54,7 +54,6 @@ void Scene::draw() {
 	cam->update(gh->primarywindow, dt);
 	updatePCs();
 	gh->loop(recfuncs);
-	ocean.getComputePCDataPtr()->flags = 0x0;
 	recfuncs[4] = nullptr;
 	// std::cout << (1.f / dt) << std::endl;
 }
@@ -84,7 +83,7 @@ void Scene::recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
 
 void Scene::record() {
 	if (recfuncs) delete[] recfuncs;
-	recfuncs = new cbRecFunc[5];
+	recfuncs = new cbRecFunc[6];
 	cbRecData data {
 		ocean.floor->getVertexBufferPtr(), 
 		ocean.floor->getIndexBufferPtr(), 
@@ -92,9 +91,11 @@ void Scene::record() {
 		ocean.getPropertyComputeDescriptorSet()
 	};
 	recfuncs[4] = cbRecFunc([data] (VkCommandBuffer& cb) {Ocean::recordPropertyComputeCommandBuffer(cb, data);});
-	ocean.getComputePCDataPtr()->flags = 0x0;
 	data.ds = ocean.getComputeDescriptorSet();
 	recfuncs[1] = cbRecFunc([data] (VkCommandBuffer& cb) {Ocean::recordComputeCommandBuffer(cb, data);});
+	data.ds = ocean.getShoalingComputeDescriptorSet();
+	data.pcdata = reinterpret_cast<void *>(ocean.getShoalingComputePCDataPtr());
+	recfuncs[5] = cbRecFunc([data] (VkCommandBuffer& cb) {Ocean::recordShoalingComputeCommandBuffer(cb, data);});
 	data.pcdata = reinterpret_cast<void *>(&envpcdata);
 	data.ds = envdescriptorset;
 	recfuncs[3] = cbRecFunc([data] (VkCommandBuffer& cb) {Scene::recordGraphicsCommandBuffer(cb, data);});
@@ -112,6 +113,7 @@ void Scene::updatePCs() {
 	ocean.getGraphicsPCDataPtr()->cameravp = cam->getVP();
 	ocean.getGraphicsPCDataPtr()->camerapos = cam->getCartesianPosition();
 	ocean.getComputePCDataPtr()->t = (float)glfwGetTime();
+	ocean.getShoalingComputePCDataPtr()->t = (float)glfwGetTime();
 	ocean.floor->getGraphicsPCDataPtr()->cameravp = cam->getVP();
 	ocean.floor->getGraphicsPCDataPtr()->camerapos = cam->getCartesianPosition();
 	envpcdata.cameravp = cam->getEnvVP();

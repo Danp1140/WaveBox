@@ -1,18 +1,6 @@
 #include "GraphicsHandler.h"
 
-typedef enum DTHGraphicsFlagBits {
-	DTH_GRAPHICS_FLAG_SSRR = 0x00000001,
-	DTH_GRPAHICS_FLAG_CUBEMAP_REFLECTION = 0x00000002,
-	DTH_GRAPHICS_FLAG_NO_DIFFUSE_TEXTURE = 0x00000004
-} DTHGraphicsFlagBits;
-
-typedef uint32_t DTHGraphicsFlags;
-
-typedef struct DTHGraphicsPCData {
-	glm::mat4 cameravp;
-	alignas(16) glm::vec3 camerapos;
-	DTHGraphicsFlags flags;
-} DTHGraphicsPCData;
+// TODO: refine inheritance
 
 class Drawable {
 public:
@@ -29,8 +17,6 @@ public:
 
 protected:
 	static GH* gh;
-	// DTH for dynamic tessellation with height map
-	static PipelineInfo DTHgraphicspipeline;
 	static VkSampler heightmapsampler;
 	BufferInfo vertexbuffer, indexbuffer;
 	VkDescriptorSet graphicsdescriptorset;

@@ -8,6 +8,7 @@ echo "Compiling Ocean Shaders!"
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=frag GLSL/OceanFragment.glsl -o SPIRV/oceanfrag.spv
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=comp GLSL/OceanCompute.glsl -o SPIRV/oceancomp.spv
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=comp GLSL/OceanPropertyCompute.glsl -o SPIRV/oceanpropcomp.spv
+/Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=comp GLSL/OceanShoalingCompute.glsl -o SPIRV/oceanshoalcomp.spv
 
 echo "Compiling Mesh Shaders!"
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=vert GLSL/MeshVertex.glsl -o SPIRV/meshvert.spv

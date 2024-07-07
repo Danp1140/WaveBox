@@ -2,8 +2,8 @@
 
 layout(push_constant) uniform Constants {
 	mat4 cameravp;
+	vec2 dmuvmin, dmuvmax;
 	vec3 camerapos;
-	uint flags;
 } constants;
 
 layout(location = 0) in vec3 position;

@@ -3,6 +3,7 @@
 PipelineInfo Ocean::graphicspipeline = {};
 PipelineInfo Ocean::computepipeline = {};
 PipelineInfo Ocean::propertycomputepipeline = {};
+PipelineInfo Ocean::shoalingcomputepipeline = {};
 
 Ocean::Ocean(GH* g) : Drawable(g) {
 	if (computepipeline.pipeline == VK_NULL_HANDLE) initComputePipeline();
@@ -30,13 +31,18 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	heightmap.layout = VK_IMAGE_LAYOUT_GENERAL;
 	gh->createImage(heightmap);
 
+	displacementmap.extent = {DISPLACEMENT_MAP_RESOLUTION, DISPLACEMENT_MAP_RESOLUTION};
+	// had to add A16 since rgba16 not supported on my device
+	// TODO: add more dynamic format determining code
+	displacementmap.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	displacementmap.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+	displacementmap.layout = VK_IMAGE_LAYOUT_GENERAL;
+	gh->createImage(displacementmap);
+
 	// renderDepthMap();
 	delete floor;
 	floor = new Mesh(&depthmap);
 	generateDepthMap();
-	floor->getGraphicsPCDataPtr()->flags = DTH_GRAPHICS_FLAG_NO_DIFFUSE_TEXTURE;
-
-	graphicspcdata.flags = DTH_GRAPHICS_FLAG_SSRR;
 
 	waves.back().linear.addkMap(g, depthmap);
 	
@@ -49,6 +55,7 @@ Ocean::~Ocean() {
 	terminateFramebuffer();
 	terminateRenderpass();
 	if (floor) delete floor;
+	gh->destroyImage(displacementmap);
 	gh->destroyImage(heightmap);
 	// TODO: figure out why the below overrides aren't being called by Drawable's destructor
 	terminateBuffers();
@@ -79,9 +86,9 @@ void Ocean::initGraphicsPipeline() {
 			| VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT 
 			| VK_SHADER_STAGE_FRAGMENT_BIT,
 		0u,
-		sizeof(DTHGraphicsPCData)
+		sizeof(OceanGraphicsPCData)
 	};
-	VkDescriptorSetLayoutBinding dslbindings[3] {{
+	VkDescriptorSetLayoutBinding dslbindings[4] {{
 		0, // heightmap
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1,
@@ -99,18 +106,23 @@ void Ocean::initGraphicsPipeline() {
 		1,
 		VK_SHADER_STAGE_FRAGMENT_BIT,
 		nullptr
+	}, {
+		3, // disp map
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+		nullptr
 	}};
 	graphicspipeline.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		3,
+		4,
 		&dslbindings[0]
 	};
 	graphicspipeline.depthtest = true;
 
 	gh->createPipeline(graphicspipeline);
-
 }
 
 void Ocean::initComputePipeline() {
@@ -121,7 +133,7 @@ void Ocean::initComputePipeline() {
 		0u,
 		sizeof(OceanComputePCData)
 	};
-	VkDescriptorSetLayoutBinding dslbindings[4] {{
+	VkDescriptorSetLayoutBinding dslbindings[5] {{
 		0, // heightmap
 		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		1,
@@ -140,9 +152,15 @@ void Ocean::initComputePipeline() {
 		VK_SHADER_STAGE_COMPUTE_BIT,
 		nullptr
 	}, {
-		3,
+		3, // k map
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1, // this should really be whatever number we're capping shoaling waves at
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		nullptr
+	}, {
+		4, // disp map
+		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		1,
 		VK_SHADER_STAGE_COMPUTE_BIT,
 		nullptr
 	}};
@@ -150,7 +168,7 @@ void Ocean::initComputePipeline() {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		4, &dslbindings[0]
+		5, &dslbindings[0]
 	};
 
 	gh->createPipeline(computepipeline);
@@ -184,6 +202,41 @@ void Ocean::initComputePipeline() {
 	};
 
 	gh->createPipeline(propertycomputepipeline);
+
+	shoalingcomputepipeline.stages = VK_SHADER_STAGE_COMPUTE_BIT;
+	shoalingcomputepipeline.shaderfilepathprefix = "oceanshoal";
+	shoalingcomputepipeline.pushconstantrange = {
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		0u,
+		sizeof(OceanShoalingComputePCData)
+	};
+	VkDescriptorSetLayoutBinding sdslbindings[3] {{
+		0, // wave info buffer
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		1,
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		nullptr
+	}, {
+		1, // displacement map
+		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		1,
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		nullptr
+	}, {
+		2, // wave number map
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		nullptr
+	}};
+	shoalingcomputepipeline.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		3, &sdslbindings[0]
+	};
+
+	gh->createPipeline(shoalingcomputepipeline);
 }
 
 void Ocean::initDepthPipeline() {
@@ -219,6 +272,9 @@ void Ocean::terminatePipelines() {
 	if (propertycomputepipeline.pipeline != VK_NULL_HANDLE) {
 		gh->destroyPipeline(propertycomputepipeline);
 	}
+	if (shoalingcomputepipeline.pipeline != VK_NULL_HANDLE) {
+		gh->destroyPipeline(shoalingcomputepipeline);
+	}
 }
 
 void Ocean::recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
@@ -230,7 +286,7 @@ void Ocean::recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
 		| VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT 
 		| VK_SHADER_STAGE_FRAGMENT_BIT, 
 		0u,
-		sizeof(DTHGraphicsPCData),
+		sizeof(OceanGraphicsPCData),
 		data.pcdata);
 	vkCmdBindDescriptorSets(
 		cb,
@@ -271,6 +327,24 @@ void Ocean::recordPropertyComputeCommandBuffer(VkCommandBuffer& cb, cbRecData da
 		0u, 1u, &data.ds,
 		0u, nullptr);
 	vkCmdDispatch(cb, 128, 128, 1);
+}
+
+void Ocean::recordShoalingComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
+	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, shoalingcomputepipeline.pipeline);
+	vkCmdPushConstants(
+		cb,
+		shoalingcomputepipeline.layout, 
+		VK_SHADER_STAGE_COMPUTE_BIT, 
+		0u,
+		sizeof(OceanShoalingComputePCData),
+		data.pcdata);
+	vkCmdBindDescriptorSets(
+		cb,
+		VK_PIPELINE_BIND_POINT_COMPUTE,
+		shoalingcomputepipeline.layout,
+		0u, 1u, &data.ds,
+		0u, nullptr);
+	vkCmdDispatch(cb, DISPLACEMENT_MAP_RESOLUTION, DISPLACEMENT_MAP_RESOLUTION, 1);
 }
 
 void Ocean::initRenderpass() {
@@ -377,32 +451,39 @@ void Ocean::terminateBuffers() {
 }
 
 void Ocean::initDescriptorSets() {
-	VkDescriptorImageInfo di[2] {
+	VkDescriptorImageInfo di[4] {
 		{heightmapsampler, heightmap.view, heightmap.layout},
-		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout}
+		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout},
+		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
+		{heightmapsampler, displacementmap.view, displacementmap.layout}
 	};
 	gh->createDescriptorSet(
 		graphicsdescriptorset, 
 		graphicspipeline.dsl, 
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
 		&di[0], nullptr);
 
-	VkDescriptorImageInfo ii[4] = {
+	VkDescriptorImageInfo ii[5] = {
 		{heightmapsampler, heightmap.view, heightmap.layout}, 
 		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
 		{heightmapsampler, depthmap.view, depthmap.layout},
-		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
+		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout}, // quick & dirty to test tech, TODO: make more functional later!
+		{heightmapsampler, displacementmap.view, displacementmap.layout}
 	};
-	VkDescriptorBufferInfo bi[4] = {
+	VkDescriptorBufferInfo bi[5] = {
 		{VK_NULL_HANDLE, 0u, 0u}, 
 		{wavebuffer.buffer, 0u, VK_WHOLE_SIZE},
+		{VK_NULL_HANDLE, 0u, 0u},
 		{VK_NULL_HANDLE, 0u, 0u},
 		{VK_NULL_HANDLE, 0u, 0u}
 	};
 	gh->createDescriptorSet(
 		computedescriptorset, 
 		computepipeline.dsl, 
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
 		&ii[0], &bi[0]);
 
 	VkDescriptorImageInfo pii[3] = {
@@ -422,12 +503,30 @@ void Ocean::initDescriptorSets() {
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
 		&pii[0], &pbi[0]);
 
+	VkDescriptorImageInfo sii[3] {
+		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
+		{heightmapsampler, displacementmap.view, displacementmap.layout},
+		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout} 
+	};
+	VkDescriptorBufferInfo sbi[3] = {
+		{wavebuffer.buffer, 0u, VK_WHOLE_SIZE},
+		{VK_NULL_HANDLE, 0u, 0u},
+		{VK_NULL_HANDLE, 0u, 0u}
+	};
+	gh->createDescriptorSet(
+		shoalingcomputedescriptorset,
+		shoalingcomputepipeline.dsl,
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+		&sii[0], &sbi[0]);
 }
 
 void Ocean::terminateDescriptorSets() {
 	gh->destroyDescriptorSet(graphicsdescriptorset);
 	gh->destroyDescriptorSet(computedescriptorset);
 	gh->destroyDescriptorSet(propertycomputedescriptorset);
+	gh->destroyDescriptorSet(shoalingcomputedescriptorset);
 }
 
 std::vector<Wave> Ocean::piersonMoskowitzSample(uint8_t n) {
@@ -505,10 +604,14 @@ void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indi
 	for (uint32_t x = 0; x < n; x++) {
 		for (uint32_t y = 0; y < n; y++) {
 			vertices.push_back({
-				2 * scale * glm::vec3(float(x)/float(n) - 0.5, 0, float(y)/float(n) - 0.5),
-				glm::vec2(float(x)/float(n), float(y)/float(n)),
+				2 * scale * glm::vec3(float(x)/float(n - 1) - 0.5, 0, float(y)/float(n - 1) - 0.5),
+				glm::vec2(float(x)/float(n - 1), float(y)/float(n - 1)),
 				glm::vec3(0, 1, 0)
 			});
+			/*
+			std::cout << "(" << vertices.back().position.x << ", " << vertices.back().position.y << ", " << vertices.back().position.z << ")" << std::endl;
+			std::cout << "(" << vertices.back().uv.x << ", " << vertices.back().uv.y << ")" << std::endl;
+			*/
 		}
 	}
 
@@ -538,7 +641,7 @@ void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indi
 			vertices.push_back({
 				glm::vec3(vertices[y].position.x, -scale, vertices[y].position.z),
 				glm::vec2(0, 0),
-				glm::vec3(1, 0, 0)
+				glm::vec3(1, 1, 1)
 			});
 		}
 		for (uint32_t y = 0; y < n - 1; y++) {
@@ -600,9 +703,7 @@ void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indi
 
 		newvertend = vertices.size();
 		for (uint32_t x = 0; x < n * n ; x += n) {
-			vertices.push_back({
-				glm::vec3(vertices[vertend - x].position.x, -scale, vertices[vertend - x].position.z),
-				glm::vec2(0, 0),
+			vertices.push_back({ glm::vec3(vertices[vertend - x].position.x, -scale, vertices[vertend - x].position.z), glm::vec2(0, 0),
 				glm::vec3(0, 0, -1)
 			});
 		}
@@ -655,16 +756,42 @@ void Ocean::renderDepthMap() {
 }
 
 void Ocean::generateDepthMap() {
+	// these shoaling displacement map extrema are store in depth map texels, to be converted later
+	glm::ivec2 shoalingmin = glm::ivec2(depthmap.extent.width, depthmap.extent.height), 
+		shoalingmax = glm::ivec2(0);
+
 	float *data = new float[depthmap.extent.width * depthmap.extent.height];
 	for (uint32_t x = 0; x < depthmap.extent.width; x++) {
 		for (uint32_t y = 0; y < depthmap.extent.height; y++) {
 			data[x * depthmap.extent.height + y] = sqrt(pow(float(x) / float(depthmap.extent.width), 2.) + pow(float(y) / float(depthmap.extent.height), 2.)) 
 				* sqrt(float(x) / float(depthmap.extent.width) * 10.) 
 				* 10. - 30.; 
+
+			for (const Wave& w : waves) {
+				if (w.wavetype == WAVE_TYPE_LINEAR) {
+					if ((data[x * depthmap.extent.height + y] <= 0)
+						&& ((w.linear.H / -data[x * depthmap.extent.height + y]) > 0.78)) {
+						if (x < shoalingmin.x) shoalingmin.x = x;
+						if (y < shoalingmin.y) shoalingmin.y = y;
+						if (x > shoalingmax.x) shoalingmax.x = x;
+						if (y > shoalingmax.y) shoalingmax.y = y;
+					}
+				}
+			}
 		}
 	}
 	gh->updateImage(depthmap, reinterpret_cast<void*>(data));
 	delete[] data;
 
-	computepcdata.flags |= OCEAN_COMPUTE_FLAG_DEPTH_MAP_CHANGE;
+	computepcdata.dmuvmin = glm::vec2((float)shoalingmin.x / (float)depthmap.extent.width,
+			(float)shoalingmin.y / (float)(depthmap.extent.height - 1));
+	computepcdata.dmuvmax = glm::vec2((float)shoalingmax.x / (float)depthmap.extent.height,
+			(float)shoalingmax.y / (float)(depthmap.extent.height - 1));
+	computepcdata.dmuvmin = glm::vec2(computepcdata.dmuvmin.y, computepcdata.dmuvmin.x);
+	computepcdata.dmuvmax = glm::vec2(computepcdata.dmuvmax.y, computepcdata.dmuvmax.x);
+	graphicspcdata.dmuvmin = computepcdata.dmuvmin;
+	graphicspcdata.dmuvmax = computepcdata.dmuvmax;
+
+	shoalingcomputepcdata.worldscale = scale * (computepcdata.dmuvmax - computepcdata.dmuvmin);
+	shoalingcomputepcdata.worldoffset = scale * (computepcdata.dmuvmin - glm::vec2(0.5));
 }

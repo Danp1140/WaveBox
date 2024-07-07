@@ -4,10 +4,6 @@
 #define X_RESOLUTION 2048.
 #define DX (X_SCALE / X_RESOLUTION)
 
-#define G 9.8
-#define RK4_STEP 0.001
-#define RK4_DEFAULT_INIT 0.01 // TODO: more specific naming
-
 struct LinearWave {
 	uint wavetype;
 	uint depthtype;
@@ -17,7 +13,7 @@ struct LinearWave {
 
 layout(push_constant) uniform Constants {
 	float t;
-	uint flags;
+	vec2 dmuvmin, dmuvmax;
 } constants;
 
 layout (binding = 0, r32f) uniform image2D height;
@@ -26,28 +22,40 @@ layout (std430, set = 0, binding = 1) buffer WaveBuffer {
 	LinearWave data[];
 } linearwaves;
 
-layout (set = 0, binding = 2) uniform sampler2D depth;
+layout (set = 0, binding = 2) uniform sampler2D depthmap;
 
 layout (set = 0, binding = 3) uniform sampler2D kmap;
 
+layout (binding = 4, rgba16f) uniform image2D displacement;
+
 void main() {
 	const ivec2 gicoords = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
-	// imageStore(height, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(0.05 * sin(float(gl_GlobalInvocationID.y) * 0.01 + constants.t * 5.)));
+	const vec2 uv = vec2(gicoords) / X_RESOLUTION;
+	const vec2 pos = (uv - vec2(0.5)) * X_SCALE;
+	const ivec2 dmcoords = ivec2((uv - constants.dmuvmin) / (constants.dmuvmax - constants.dmuvmin) * 512.);
 	if (gl_GlobalInvocationID.z == 0) {
 		imageStore(height, gicoords, vec4(0.));
 	}
 	if (linearwaves.data[gl_GlobalInvocationID.z].wavetype == 0) {
 		LinearWave wave = linearwaves.data[gl_GlobalInvocationID.z];
-		imageStore(
-			height,
-			gicoords,
-			imageLoad(height, gicoords) 
-			// + vec4(wave.H * cos(dot(wave.k, vec2(gicoords) * DX) - wave.omega * constants.t))
-			+ vec4(wave.H * cos(dot(texture(kmap, vec2(gicoords) / X_RESOLUTION).rg, vec2(gicoords) * DX) - wave.omega * constants.t))
-		);
-		if (wave.H / -texture(depth, vec2(gicoords) / X_RESOLUTION).r > 0.78
-			|| texture(depth, vec2(gicoords) / X_RESOLUTION).r >= 0 ) {
-			imageStore(height, gicoords, vec4(0.));
+		float depth = -texture(depthmap, vec2(gicoords) / X_RESOLUTION).r;
+
+		vec4 value;
+		if (gl_GlobalInvocationID.z > 0) value = imageLoad(height, gicoords);
+		else value = vec4(0);
+
+		if (depth <= 0) value = vec4(0.);
+		else value += vec4(wave.H * cos(dot(texture(kmap, uv).rg, pos) - wave.omega * constants.t));
+
+		if (uv.x >= constants.dmuvmax.x || uv.y >= constants.dmuvmax.y
+			|| uv.x <= constants.dmuvmin.x || uv.y <= constants.dmuvmin.y) {
+			imageStore(
+				height,
+				gicoords,
+				value
+			);
+
 		}
+		// imageStore(height, gicoords, vec4(10));
 	}
 }

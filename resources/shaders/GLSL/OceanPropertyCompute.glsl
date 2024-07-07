@@ -60,6 +60,8 @@ void main() {
 		float dkdx = dkdd(newk, newd) * (newd - texture(depth, vec2(gicoords.x + 1, gicoords.y) / 128).r);
 		float dkdy = dkdd(newk, newd) * (newd - texture(depth, vec2(gicoords.x, gicoords.y + 1) / 128).r);
 		float newtheta = refractTheta(newk, atan(wave.k.y, wave.k.x), dkdx, dkdy);
+		
+		if (newd < 0.) newk = 0.;
 		/*
 		 * TODO:
 		 * Factor in theta, Ks, and Kr

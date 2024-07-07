@@ -3,7 +3,6 @@
 typedef struct MeshGraphicsPCData {
 	glm::mat4 cameravp;
 	alignas(16) glm::vec3 camerapos;
-
 } MeshGraphicsPCData;
 
 class Mesh : public Drawable {
@@ -16,13 +15,13 @@ public:
 
 	static void terminatePipelines();
 
-	DTHGraphicsPCData* getGraphicsPCDataPtr() {return &graphicspcdata;}
+	MeshGraphicsPCData* getGraphicsPCDataPtr() {return &graphicspcdata;}
 
 	static void recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data);
 
 private:
 	static PipelineInfo graphicspipeline;
-	DTHGraphicsPCData graphicspcdata;
+	MeshGraphicsPCData graphicspcdata;
 	ImageInfo* heightmap;
 
 	static void initGraphicsPipeline();

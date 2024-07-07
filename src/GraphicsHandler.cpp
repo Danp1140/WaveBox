@@ -370,15 +370,15 @@ void GH::terminateCommandBuffers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		12,
+		17,
 		3, &poolsizes[0]
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -737,7 +737,7 @@ void GH::createDescriptorSet(
 
 	// could technically do this as a batch write
 	for (uint8_t i = 0; i < type.size(); i++ ) {
-		// if ((!ii || ii[i].sampler == VK_NULL_HANDLE) && (!bi || bi[i].buffer == VK_NULL_HANDLE)) continue;
+		if ((!ii || ii[i].sampler == VK_NULL_HANDLE) && (!bi || bi[i].buffer == VK_NULL_HANDLE)) continue;
 		VkWriteDescriptorSet write {
 			VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			nullptr,
@@ -1056,6 +1056,7 @@ void GH::recordPrimaryCommandBuffer(cbRecFunc* rectasks) {
 		rectasks[4](primarycommandbuffers[fifindex]);
 	}
 	rectasks[1](primarycommandbuffers[fifindex]);
+	rectasks[5](primarycommandbuffers[fifindex]);
 
 	VkRenderPassBeginInfo rpbi {
 		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,

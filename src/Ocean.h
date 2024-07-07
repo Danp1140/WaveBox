@@ -1,19 +1,25 @@
 #include "Mesh.h"
 
 #define HEIGHT_MAP_RESOLUTION 2048
+#define DISPLACEMENT_MAP_RESOLUTION 512
 #define DEPTH_MAP_RESOLUTION 16 // in texels/m
 #define MAX_SHOALING_WAVES 8;
 
-typedef enum OceanComputeFlagBits {
-	OCEAN_COMPUTE_FLAG_DEPTH_MAP_CHANGE = 0x00000001
-} OceanComputeFlagBits;
-
-typedef uint32_t OceanComputeFlags;
+typedef struct OceanGraphicsPCData {
+	glm::mat4 cameravp;
+	glm::vec2 dmuvmin, dmuvmax;
+	alignas(16) glm::vec3 camerapos;
+} OceanGraphicsPCData;
 
 typedef struct OceanComputePCData {
 	float t;
-	OceanComputeFlags flags;
+	alignas(16) glm::vec2 dmuvmin, dmuvmax;
 } OceanComputePCData;
+
+typedef struct OceanShoalingComputePCData {
+	glm::vec2 worldscale, worldoffset;
+	float t;
+} OceanShoalingComputePCData;
 
 typedef struct DepthPCData {
 	glm::mat4 cameravp;
@@ -94,7 +100,7 @@ typedef struct Wave {
  */
 class Ocean : public Drawable {
 public:
-	static PipelineInfo graphicspipeline, computepipeline, propertycomputepipeline;
+	static PipelineInfo graphicspipeline, computepipeline, propertycomputepipeline, shoalingcomputepipeline;
 	PipelineInfo depthpipeline;
 	VkRenderPass depthrenderpass;
 	VkFramebuffer depthframebuffer;
@@ -104,10 +110,12 @@ public:
 	Ocean(GH* g);
 	~Ocean();
 
-	DTHGraphicsPCData * getGraphicsPCDataPtr() {return &graphicspcdata;}
+	OceanGraphicsPCData * getGraphicsPCDataPtr() {return &graphicspcdata;}
 	OceanComputePCData * getComputePCDataPtr() {return &computepcdata;}
+	OceanShoalingComputePCData * getShoalingComputePCDataPtr() {return &shoalingcomputepcdata;}
 	VkDescriptorSet getComputeDescriptorSet() {return computedescriptorset;}
 	VkDescriptorSet getPropertyComputeDescriptorSet() {return propertycomputedescriptorset;}
+	VkDescriptorSet getShoalingComputeDescriptorSet() {return shoalingcomputedescriptorset;}
 
 	// Also inits heightmapsampler
 	static void initGraphicsPipeline();
@@ -117,16 +125,18 @@ public:
 	static void recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data);
 	static void recordComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data);
 	static void recordPropertyComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data);
+	static void recordShoalingComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data);
 	void attachEnvMap(ImageInfo& ii, VkSampler s);
 
 	static std::vector<Wave> piersonMoskowitzSample(uint8_t n);
 
 private:
 	BufferInfo wavebuffer;
-	ImageInfo heightmap, depthmap;
-	DTHGraphicsPCData graphicspcdata;
+	ImageInfo heightmap, depthmap, displacementmap;
+	OceanGraphicsPCData graphicspcdata;
 	OceanComputePCData computepcdata;
-	VkDescriptorSet computedescriptorset, propertycomputedescriptorset;
+	OceanShoalingComputePCData shoalingcomputepcdata;
+	VkDescriptorSet computedescriptorset, propertycomputedescriptorset, shoalingcomputedescriptorset;
 	float scale;
 	uint8_t presubdivision;
 	bool sidewalls;
