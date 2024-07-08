@@ -18,6 +18,7 @@ add_executable(WaveBox src/main.cpp
 	src/Scene.cpp src/Scene.h
 	src/Drawable.cpp src/Drawable.h
 	src/Mesh.cpp src/Mesh.h
+	src/UI.cpp src/UI.h
 )
 
 # using an outdated libpng.a because my up-to-date build for the headers we're using didn't provide me one lol
