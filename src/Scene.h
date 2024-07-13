@@ -1,4 +1,5 @@
 #include "Ocean.h"
+#include "UIHandler.h"
 
 typedef struct EnvGraphicsPCData {
 	glm::mat4 cameravp;
@@ -18,6 +19,7 @@ private:
 	GH* gh;
 	Camera* cam;
 	Ocean ocean;
+	UIHandler ui;
 	cbRecFunc* recfuncs;
 	double lastt, dt;
 	static PipelineInfo skyboxgraphicspipeline;

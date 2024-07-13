@@ -23,3 +23,7 @@ echo "Compiling Env Shaders!"
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=vert GLSL/EnvVertex.glsl -o SPIRV/envvert.spv
 /Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=frag GLSL/EnvFragment.glsl -o SPIRV/envfrag.spv
 
+echo "Compiling UI Shaders!"
+/Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=vert GLSL/UIVertex.glsl -o SPIRV/uivert.spv
+/Users/danp/VulkanSDK/1.2.176.1/macOS/bin/glslc -fshader-stage=frag GLSL/UIFragment.glsl -o SPIRV/uifrag.spv
+

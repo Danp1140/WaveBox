@@ -1073,6 +1073,7 @@ void GH::recordPrimaryCommandBuffer(cbRecFunc* rectasks) {
 	rectasks[2](primarycommandbuffers[fifindex]);
 	rectasks[0](primarycommandbuffers[fifindex]);
 	//for (auto rt : rectasks) rt(primarycommandbuffers[fifindex]);
+	rectasks[5](primarycommandbuffers[fifindex]);
 
 	vkCmdEndRenderPass(primarycommandbuffers[fifindex]);
 	vkEndCommandBuffer(primarycommandbuffers[fifindex]);

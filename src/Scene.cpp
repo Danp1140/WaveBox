@@ -3,7 +3,7 @@
 PipelineInfo Scene::skyboxgraphicspipeline = {};
 VkSampler Scene::skyboxsampler = VK_NULL_HANDLE;
 
-Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)){
+Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui(graphicshandler, VK_NULL_HANDLE) {
 	gh = graphicshandler;
 
 	if (skyboxgraphicspipeline.pipeline == VK_NULL_HANDLE) {
@@ -84,7 +84,7 @@ void Scene::recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
 
 void Scene::record() {
 	if (recfuncs) delete[] recfuncs;
-	recfuncs = new cbRecFunc[5];
+	recfuncs = new cbRecFunc[6];
 	cbRecData data {
 		ocean.floor->getVertexBufferPtr(), 
 		ocean.floor->getIndexBufferPtr(), 
@@ -106,6 +106,11 @@ void Scene::record() {
 	data.pcdata = reinterpret_cast<void *>(ocean.getGraphicsPCDataPtr());
 	data.ds = ocean.getGraphicsDescriptorSet();
 	recfuncs[0] = cbRecFunc([data] (VkCommandBuffer& cb) {Ocean::recordGraphicsCommandBuffer(cb, data);});
+	UIHandler* utemp = &ui;
+	recfuncs[5] = cbRecFunc([utemp] (VkCommandBuffer& cb) {
+		utemp->setCommandBuffer(cb);
+		utemp->draw();
+	});
 }
 
 void Scene::updatePCs() {

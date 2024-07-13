@@ -8,6 +8,16 @@
 
 // -- Public --
 
+UIPipelineInfo UIComponent::graphicspipeline = {};
+dfType UIComponent::defaultDrawFunc = nullptr;
+
+void UIComponent::draw() {
+	drawFunc(this);
+	for (UIComponent* c : getChildren()) {
+		c->draw();
+	}
+}
+
 // -- Private --
 
 
@@ -46,7 +56,7 @@ std::vector<UIComponent*> UIButton::getChildren() {return {&text};}
 // -- Public --
 
 std::vector<UIComponent*> UIDropdown::getChildren() {
-	std::vector<UIComponent*> result;
+	std::vector<UIComponent*> result = {};
 	for (size_t i = 0; i < options.size(); i++) result.push_back(&options[i]);
 	return result;
 }
@@ -88,6 +98,10 @@ std::vector<UIComponent*> UIRibbon::getChildren() {
 	std::vector<UIComponent*> result;
 	for (size_t i = 0; i < options.size(); i++) result.push_back(&options[i]);
 	return result;
+}
+
+void UIRibbon::addOption(std::wstring name) {
+	options.emplace_back(name);
 }
 
 // -- Private --

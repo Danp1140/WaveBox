@@ -1,3 +1,5 @@
+#ifndef GRAPHICS_HANDLER_H
+#define GRAPHICS_HANDLER_H
 #include "Camera.h"
 
 #include <iostream>
@@ -257,3 +259,4 @@ private:
 			const VkDebugUtilsMessengerCallbackDataEXT* callbackdata,
 			void* userdata);
 };
+#endif
