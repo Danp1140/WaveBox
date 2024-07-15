@@ -3,7 +3,7 @@
 PipelineInfo Scene::skyboxgraphicspipeline = {};
 VkSampler Scene::skyboxsampler = VK_NULL_HANDLE;
 
-Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui(graphicshandler, VK_NULL_HANDLE) {
+Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui(graphicshandler, VK_NULL_HANDLE, graphicshandler->primarywindow) {
 	gh = graphicshandler;
 
 	if (skyboxgraphicspipeline.pipeline == VK_NULL_HANDLE) {
@@ -39,6 +39,7 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui
 	record();
 	lastt = glfwGetTime();
 
+	ui.addRoot(new UIText("Framerate Goes Here"));
 }
 
 Scene::~Scene() {

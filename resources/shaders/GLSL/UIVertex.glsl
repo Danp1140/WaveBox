@@ -6,6 +6,7 @@
 
 layout(push_constant) uniform Constants {
 	vec2 position, extent;
+	vec4 bgcolor;
 } constants;
 
 // wouldn't let me make this const, may need to do some keyword hacking w/ defs of push constants

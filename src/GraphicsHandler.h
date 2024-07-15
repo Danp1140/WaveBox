@@ -55,7 +55,10 @@ typedef struct ImageInfo {
 				return 4u;
 			case VK_FORMAT_R8G8B8A8_SRGB:
 				return 4u;
+			case VK_FORMAT_R8_UNORM:
+				return 1u;
 			default:
+				std::cout << "Unsupported VkFormat for ImageInfo pixelSize()" << std::endl;
 				return -1u;
 		}
 	}
@@ -115,6 +118,8 @@ public:
 
 	GH();
 	~GH();
+
+	VkExtent2D getScreenExtent() {return swapchainimages[0].extent;}
 
 	void loop(cbRecFunc* rectasks);
 
