@@ -170,19 +170,6 @@ private:
 	static tdfType texDestroyFunc;
 };
 
-// TODO: remove this class
-class UIButton : public UIComponent {
-public:
-	UIButton() : text(L"") {}
-	UIButton(std::wstring t) : text(t) {}
-
-	std::vector<UIComponent*> getChildren();
-
-private:
-	UIText text;
-
-};
-
 class UIDropdown : public UIComponent {
 public:
 	UIDropdown() = default;

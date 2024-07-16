@@ -205,18 +205,6 @@ void UIText::genTex() {
 }
 
 /* 
- * ------------
- * | UIButton |
- * ------------
- */
-
-// -- Public --
-
-std::vector<UIComponent*> UIButton::getChildren() {return {&text};}
-
-// -- Private --
-
-/* 
  * --------------
  * | UIDropdown |
  * --------------
