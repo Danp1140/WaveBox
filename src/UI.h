@@ -24,6 +24,8 @@ typedef std::function<void (UIComponent*)> dfType;
 
 typedef std::function<void (UIText*, unorm*)> tfType;
 
+typedef std::function<void (UIText*)> tdfType;
+
 typedef std::function<void (UIComponent*, void*)> cfType;
 
 typedef struct UIPipelineInfo {
@@ -62,7 +64,6 @@ typedef enum UIEventFlagBits {
 class UIComponent {
 public:
 	UIComponent() : 
-		renderpriority(0), 
 		drawFunc(defaultDrawFunc), 
 		onHover(defaultOnHover),
 		onHoverBegin(defaultOnHoverBegin),
@@ -72,11 +73,30 @@ public:
 		onClickEnd(defaultOnClickEnd),
 		ds(defaultds), 
 		events(UI_EVENT_FLAG_NONE) {}
-	UIComponent(vec2 p, vec2 e, uint8_t rp) : 
-		pcdata({p, e}), 
-		renderpriority(rp), 
+	UIComponent(vec2 p, vec2 e) : 
+		pcdata({p, e, UI_DEFAULT_BG_COLOR}), 
 		drawFunc(defaultDrawFunc), 
+		onHover(defaultOnHover),
+		onHoverBegin(defaultOnHoverBegin),
+		onHoverEnd(defaultOnHoverEnd),
+		onClick(defaultOnClick),
+		onClickBegin(defaultOnClickBegin),
+		onClickEnd(defaultOnClickEnd),
+		ds(defaultds),
 		events(UI_EVENT_FLAG_NONE) {}
+	UIComponent(const UIComponent& rhs) :
+		pcdata(rhs.pcdata),
+		drawFunc(rhs.drawFunc),
+		onHover(rhs.onHover),
+		onHoverBegin(rhs.onHoverBegin),
+		onHoverEnd(rhs.onHoverEnd),
+		onClick(rhs.onClick),
+		onClickBegin(rhs.onClickBegin),
+		onClickEnd(rhs.onClickEnd),
+		ds(rhs.ds),
+		events(rhs.events) {}
+	UIComponent(UIComponent&& rhs) noexcept;
+
 
 	virtual std::vector<UIComponent*> getChildren() = 0;
 
@@ -87,6 +107,7 @@ public:
 	static void setGraphicsPipeline(UIPipelineInfo p) {graphicspipeline = p;}
 	static UIPipelineInfo getGraphicsPipeline() {return graphicspipeline;}
 	static void setNoTex(UIImageInfo i) {notex = i;}
+	static UIImageInfo getNoTex() {return notex;}
 	static void setDefaultDS(VkDescriptorSet d) {defaultds = d;}
 	static void setDefaultDrawFunc(dfType ddf) {defaultDrawFunc = ddf;}
 	static void setScreenExtent(vec2 e) {screenextent = e;}
@@ -104,8 +125,6 @@ protected:
 	static vec2 screenextent;
 
 private:
-	// TODO: actually make renderpriority work lol
-	uint8_t renderpriority; // kinda like z-index, but only in relation to siblings (parent always lower)
 	dfType drawFunc;
 	cfType onHover, onHoverBegin, onHoverEnd,
 		onClick, onClickBegin, onClickEnd;
@@ -123,12 +142,21 @@ class UIText : public UIComponent {
 public:
 	// Note: default constructor does not initialize the texture
 	UIText();
+	UIText(const UIText& rhs) :
+		text(rhs.text),
+		tex(rhs.tex),
+		UIComponent(rhs) {}
+	UIText(UIText&& rhs) noexcept;
 	UIText(std::wstring t);
+	UIText(std::wstring t, vec2 p); 
+	~UIText();
 
 	std::vector<UIComponent*> getChildren();
 	UIImageInfo* getTexPtr() {return &tex;}
+	void setText(std::wstring t);
 
 	static void setTexLoadFunc(tfType tf) {texLoadFunc = tf;}
+	static void setTexDestroyFunc(tdfType tdf) {texDestroyFunc = tdf;}
 
 private:
 	std::wstring text;
@@ -139,6 +167,7 @@ private:
 	static FT_Library ft;
 	static FT_Face typeface;
 	static tfType texLoadFunc;
+	static tdfType texDestroyFunc;
 };
 
 // TODO: remove this class

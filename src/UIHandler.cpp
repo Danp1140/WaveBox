@@ -94,11 +94,19 @@ UIHandler::UIHandler(GH* g, VkCommandBuffer c, GLFWwindow* w) : gh(g), uicb(c), 
 	});
 	UIText::setTexLoadFunc([this] (UIText* self, unorm* d) {
 		ImageInfo i;
+		i.image = self->getTexPtr()->image;
+		i.memory = self->getTexPtr()->memory;
+		i.view = self->getTexPtr()->view;
 		i.format = VK_FORMAT_R8_UNORM;
 		// would like for this to actually just be sampled bit and for layout to be shader read only optimal
 		i.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		i.layout = VK_IMAGE_LAYOUT_GENERAL;
 		i.extent = self->getTexPtr()->extent;
+		bool updating = i.image != VK_NULL_HANDLE;
+		if (updating) {
+			gh->waitIdle();
+			gh->destroyImage(i);
+		}
 		gh->createImage(i);
 		self->getTexPtr()->image = i.image;
 		self->getTexPtr()->memory = i.memory;
@@ -109,18 +117,33 @@ UIHandler::UIHandler(GH* g, VkCommandBuffer c, GLFWwindow* w) : gh(g), uicb(c), 
 
 		VkDescriptorImageInfo ii = {textsampler, self->getTexPtr()->view, self->getTexPtr()->layout};
 		UIPipelineInfo uipipeline = UIComponent::getGraphicsPipeline();
-		gh->createDescriptorSet(
-			*(self->getDSPtr()),
-			uipipeline.dsl,
-			{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
-			&ii, nullptr);
-	});
 
-	UIRibbon* topribbon = new UIRibbon();
-	topribbon->addOption(L"File");
-	topribbon->addOption(L"View");
-	topribbon->addOption(L"Tools");
-	roots = {topribbon};
+		if (updating) {
+			gh->updateDescriptorSet(
+				*(self->getDSPtr()),
+				0,
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				ii, {});
+		}
+		else {
+			gh->createDescriptorSet(
+				*(self->getDSPtr()),
+				uipipeline.dsl,
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+				&ii, nullptr);
+		}
+	});
+	UIText::setTexDestroyFunc([this] (UIText* self) {
+		if (self->getTexPtr()->image == VK_NULL_HANDLE) return;
+		ImageInfo i;
+		i.image = self->getTexPtr()->image;
+		i.memory = self->getTexPtr()->memory;
+		i.view = self->getTexPtr()->view;
+		gh->destroyImage(i);
+		self->getTexPtr()->image = VK_NULL_HANDLE;
+		self->getTexPtr()->memory = VK_NULL_HANDLE;
+		self->getTexPtr()->view = VK_NULL_HANDLE;
+	});
 }
 
 UIHandler::~UIHandler() {
@@ -129,6 +152,12 @@ UIHandler::~UIHandler() {
 	p.pipeline = UIComponent::getGraphicsPipeline().pipeline;
 	p.dsl = UIComponent::getGraphicsPipeline().dsl;
 	gh->destroyPipeline(p);
+	ImageInfo i;
+	i.image = UIComponent::getNoTex().image;
+	i.memory = UIComponent::getNoTex().memory;
+	i.view = UIComponent::getNoTex().view;
+	gh->destroyImage(i);
+	gh->destroySampler(textsampler);
 }
 
 void UIHandler::draw() {

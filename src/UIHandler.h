@@ -13,6 +13,8 @@ public:
 
 	void addRoot(UIComponent* c) {roots.push_back(c);}
 
+	std::vector<UIComponent*> getRoots() {return roots;}
+
 private:
 	std::vector<UIComponent*> roots;
 	GH* gh;

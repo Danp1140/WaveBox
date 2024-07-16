@@ -14,6 +14,29 @@ UIImageInfo UIComponent::notex = {};
 VkDescriptorSet UIComponent::defaultds = VK_NULL_HANDLE;
 dfType UIComponent::defaultDrawFunc = nullptr;
 
+UIComponent::UIComponent(UIComponent&& rhs) noexcept :
+		pcdata(rhs.pcdata),
+		drawFunc(rhs.drawFunc),
+		onHover(rhs.onHover),
+		onHoverBegin(rhs.onHoverBegin),
+		onHoverEnd(rhs.onHoverEnd),
+		onClick(rhs.onClick),
+		onClickBegin(rhs.onClickBegin),
+		onClickEnd(rhs.onClickEnd),
+		ds(rhs.ds),
+		events(rhs.events) {
+	rhs.pcdata = (UIPushConstantData){};
+	rhs.drawFunc = nullptr;
+	rhs.onHover = nullptr;
+	rhs.onHoverBegin = nullptr;
+	rhs.onHoverEnd = nullptr;
+	rhs.onClick = nullptr;
+	rhs.onClickBegin = nullptr;
+	rhs.onClickEnd = nullptr;
+	rhs.ds = VK_NULL_HANDLE;
+	rhs.events = UI_EVENT_FLAG_NONE;
+}
+
 void UIComponent::draw() {
 	drawFunc(this);
 	for (UIComponent* c : getChildren()) {
@@ -80,13 +103,19 @@ cfType UIComponent::defaultOnClickEnd = [] (UIComponent* self, void* d) {};
 
 std::vector<UIComponent*> UIText::getChildren() {return {};}
 
+void UIText::setText(std::wstring t) {
+	text = t;
+	genTex();
+}
+
 // -- Private --
 
 FT_Library UIText::ft = nullptr;
 FT_Face UIText::typeface = nullptr;
 tfType UIText::texLoadFunc = nullptr; 
+tdfType UIText::texDestroyFunc = nullptr;
 
-UIText::UIText() : text(L"") {
+UIText::UIText() : text(L""), tex({}) {
 	if (!ft) {
 		ft = FT_Library();
 		FT_Init_FreeType(&ft);
@@ -94,11 +123,31 @@ UIText::UIText() : text(L"") {
 	if (!typeface) {
 		FT_New_Face(ft, UI_DEFAULT_SANS_FILEPATH, UI_DEFAULT_SANS_IDX, &typeface); 
 	}
+	tex = {};
+}
+
+UIText::UIText(UIText&& rhs) noexcept :
+	text(rhs.text),
+	tex(rhs.tex),
+	UIComponent(rhs) {
+	rhs.text = L"";
+	rhs.tex = (UIImageInfo){};
 }
 
 UIText::UIText(std::wstring t) : UIText() {
 	text = t;
 	genTex();
+}
+
+UIText::UIText(std::wstring t, vec2 p) : UIComponent(p, vec2(0)) {
+	// TODO: figure out how to call this other constructor
+	tex = {};
+	text = t;
+	genTex();
+}
+
+UIText::~UIText() {
+	texDestroyFunc(this);
 }
 
 void UIText::genTex() {
@@ -153,7 +202,6 @@ void UIText::genTex() {
 	pcdata.extent = vec2(hres, vres);
 
 	texLoadFunc(this, texturedata);
-
 }
 
 /* 
@@ -225,7 +273,7 @@ std::vector<UIComponent*> UIDropdownButtons::getChildren() {
 
 // -- Public --
 
-UIRibbon::UIRibbon() : UIComponent() {
+UIRibbon::UIRibbon() : UIComponent(), options({}) {
 	setPos(vec2(0, screenextent.y - 50));
 	setExt(vec2(screenextent.x, 50));
 }

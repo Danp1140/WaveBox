@@ -370,7 +370,7 @@ void GH::terminateCommandBuffers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 12},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 13},
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2},
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
 	};
@@ -378,7 +378,7 @@ void GH::initDescriptorPoolsAndSetLayouts() {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		16,
+		17,
 		3, &poolsizes[0]
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -981,6 +981,11 @@ void GH::destroyImage(ImageInfo& i) {
 	vkDestroyImageView(logicaldevice, i.view, nullptr);
 	freeDeviceMemory(i.memory);
 	vkDestroyImage(logicaldevice, i.image, nullptr);
+	/*
+	i.view = VK_NULL_HANDLE;
+	i.memory = VK_NULL_HANDLE;
+	i.image = VK_NULL_HANDLE;
+	*/
 }
 
 void GH::updateHostCoherentBuffer(BufferInfo& bi, void* data) {
