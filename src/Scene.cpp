@@ -39,17 +39,29 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui
 	record();
 	lastt = glfwGetTime();
 
+	UIText* infotext = new UIText(L"Information text goes here! 😎");
+	infotext->setPos(vec2(1000, 1000));
+	infotext->unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
 	UIRibbon* topribbon = new UIRibbon();
-	topribbon->addOption(L"File");
-	topribbon->addOption(L"View");
-	topribbon->addOption(L"Tools");
+	topribbon->addOption(L"File", {L"Info", L"Quit"});
+	topribbon->getChildren().back()->getChildren()[1]->setOnClickBegin([infotext] (UIComponent* self, void* d) {
+		std::cout<<"shoflag\n\n\n";
+		infotext->setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+	});
+	topribbon->getChildren().back()->getChildren().back()->setOnClickBegin([this] (UIComponent* self, void* d) {
+		glfwSetWindowShouldClose(gh->primarywindow, GL_TRUE);
+	});
+	topribbon->addOption(L"View", {L"Open Shading Menu", L"Toggle Skybox"});
+	topribbon->addOption(L"Tools", {L"Add Wave", L"Delete Wave", L"Add Seafloor"});
 	ui.addRoot(topribbon);
+	ui.addRoot(infotext);
 
-	ui.addRoot(new UIText(L"Framerate Goes Here", vec2(3584 - 300, 2240 - 50)));
+	//ui.addRoot(new UIText(L"Framerate Goes Here", vec2(3584 - 300, 2240 - 50)));
 }
 
 Scene::~Scene() {
 	delete (UIRibbon*)ui.getRoots()[0];
+	//delete (UIText*)ui.getRoots()[1];
 	delete (UIText*)ui.getRoots()[1];
 	terminateDescriptorSets();
 	terminateEnvMap();
@@ -60,7 +72,7 @@ Scene::~Scene() {
 void Scene::draw() {
 	dt = glfwGetTime() - lastt;
 	lastt = dt + lastt;
-	reinterpret_cast<UIText*>(ui.getRoots().back())->setText(std::to_wstring(1 / dt) + L"fps");
+	// reinterpret_cast<UIText*>(ui.getRoots().back())->setText(std::to_wstring(1 / dt) + L"fps");
 	cam->update(gh->primarywindow, dt);
 	updatePCs();
 	gh->loop(recfuncs);

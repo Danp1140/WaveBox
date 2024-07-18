@@ -24,7 +24,10 @@ UIComponent::UIComponent(UIComponent&& rhs) noexcept :
 		onClickBegin(rhs.onClickBegin),
 		onClickEnd(rhs.onClickEnd),
 		ds(rhs.ds),
-		events(rhs.events) {
+		events(rhs.events),
+		display(rhs.display) {
+	// TODO: figure out if this body is neccesary
+	// TODO: figure out if list init should use std::move
 	rhs.pcdata = (UIPushConstantData){};
 	rhs.drawFunc = nullptr;
 	rhs.onHover = nullptr;
@@ -35,16 +38,33 @@ UIComponent::UIComponent(UIComponent&& rhs) noexcept :
 	rhs.onClickEnd = nullptr;
 	rhs.ds = VK_NULL_HANDLE;
 	rhs.events = UI_EVENT_FLAG_NONE;
+	rhs.display = UI_DISPLAY_FLAG_SHOW;
+}
+
+void swap(UIComponent& c1, UIComponent& c2) {
+	std::swap(c1.pcdata, c2.pcdata);
+	std::swap(c1.drawFunc, c2.drawFunc);
+	std::swap(c1.onHover, c2.onHover);
+	std::swap(c1.onHoverBegin, c2.onHoverBegin);
+	std::swap(c1.onHoverEnd, c2.onHoverEnd);
+	std::swap(c1.onClick, c2.onClick);
+	std::swap(c1.onClickBegin, c2.onClickBegin);
+	std::swap(c1.onClickEnd, c2.onClickEnd);
+	std::swap(c1.ds, c2.ds);
+	std::swap(c1.events, c2.events);
 }
 
 void UIComponent::draw() {
-	drawFunc(this);
-	for (UIComponent* c : getChildren()) {
-		c->draw();
+	if (display & UI_DISPLAY_FLAG_SHOW) {
+		drawFunc(this);
+		for (UIComponent* c : getChildren()) {
+			c->draw();
+		}
 	}
 }
 
 void UIComponent::listenMousePos(vec2 mousepos, void* data) {
+	if (!(display & UI_DISPLAY_FLAG_SHOW)) return;
 	if (mousepos.x > this->getPos().x
 		&& mousepos.y > this->getPos().y
 		&& mousepos.x < this->getPos().x + this->getExt().x
@@ -60,10 +80,14 @@ void UIComponent::listenMousePos(vec2 mousepos, void* data) {
 		onHoverEnd(this, nullptr);
 		events &= ~UI_EVENT_FLAG_HOVER;
 		for (UIComponent* c : getChildren()) c->listenMousePos(mousepos, data);
+	} 
+	if (display & UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN) {
+		for (UIComponent* c : getChildren()) c->listenMousePos(mousepos, data);
 	}
 }
 
 void UIComponent::listenMouseClick(bool click, void* data) {
+	if (!(display & UI_DISPLAY_FLAG_SHOW)) return;
 	if ((events & UI_EVENT_FLAG_HOVER) && click) {
 		onClick(this, nullptr);
 		if (!(events & UI_EVENT_FLAG_CLICK)) {
@@ -74,6 +98,9 @@ void UIComponent::listenMouseClick(bool click, void* data) {
 	} else if (events & UI_EVENT_FLAG_CLICK) {
 		onClickEnd(this, nullptr);
 		events &= ~UI_EVENT_FLAG_CLICK;
+		for (UIComponent* c : getChildren()) c->listenMouseClick(click, data);
+	} 
+	if (display & UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN) {
 		for (UIComponent* c : getChildren()) c->listenMouseClick(click, data);
 	}
 }
@@ -87,11 +114,19 @@ void UIComponent::setPos(vec2 p) {
 // -- Private --
 
 cfType UIComponent::defaultOnHover = [] (UIComponent* self, void* d) {};
-cfType UIComponent::defaultOnHoverBegin = [] (UIComponent* self, void* d) {};
-cfType UIComponent::defaultOnHoverEnd = [] (UIComponent* self, void* d) {};
+cfType UIComponent::defaultOnHoverBegin = [] (UIComponent* self, void* d) {
+	self->pcdata.bgcolor = UI_DEFAULT_HOVER_BG_COLOR;
+};
+cfType UIComponent::defaultOnHoverEnd = [] (UIComponent* self, void* d) {
+	self->pcdata.bgcolor = UI_DEFAULT_BG_COLOR;
+};
 cfType UIComponent::defaultOnClick = [] (UIComponent* self, void* d) {};
-cfType UIComponent::defaultOnClickBegin = [] (UIComponent* self, void* d) {};
-cfType UIComponent::defaultOnClickEnd = [] (UIComponent* self, void* d) {};
+cfType UIComponent::defaultOnClickBegin = [] (UIComponent* self, void* d) {
+	self->pcdata.bgcolor = UI_DEFAULT_CLICK_BG_COLOR;
+};
+cfType UIComponent::defaultOnClickEnd = [] (UIComponent* self, void* d) {
+	self->pcdata.bgcolor = UI_DEFAULT_BG_COLOR;
+};
 
 /* 
  * ----------
@@ -114,6 +149,7 @@ FT_Library UIText::ft = nullptr;
 FT_Face UIText::typeface = nullptr;
 tfType UIText::texLoadFunc = nullptr; 
 tdfType UIText::texDestroyFunc = nullptr;
+std::map<VkImage, uint8_t> UIText::imgusers = {};
 
 UIText::UIText() : text(L""), tex({}) {
 	if (!ft) {
@@ -124,30 +160,72 @@ UIText::UIText() : text(L""), tex({}) {
 		FT_New_Face(ft, UI_DEFAULT_SANS_FILEPATH, UI_DEFAULT_SANS_IDX, &typeface); 
 	}
 	tex = {};
+	std::cout << "UIText()\n";
+}
+
+UIText::UIText(const UIText& rhs) :
+		text(rhs.text),
+		tex(rhs.tex),
+		UIComponent(rhs) {
+	imgusers[tex.image]++;
+	std::cout << "cpy\n";
+	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 }
 
 UIText::UIText(UIText&& rhs) noexcept :
-	text(rhs.text),
-	tex(rhs.tex),
+	text(std::move(rhs.text)),
+	tex(std::move(rhs.tex)),
 	UIComponent(rhs) {
-	rhs.text = L"";
+	std::cout << "move\n";
+	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 	rhs.tex = (UIImageInfo){};
+	std::cout << &rhs << " => " << this << std::endl;
 }
 
 UIText::UIText(std::wstring t) : UIText() {
 	text = t;
 	genTex();
+	imgusers[tex.image]++;
+	std::cout << "UIText(1)\n";
+	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 }
 
 UIText::UIText(std::wstring t, vec2 p) : UIComponent(p, vec2(0)) {
 	// TODO: figure out how to call this other constructor
-	tex = {};
 	text = t;
 	genTex();
+	imgusers[tex.image]++;
+	std::cout << "UIText(2)\n";
+	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 }
 
 UIText::~UIText() {
-	texDestroyFunc(this);
+	if (tex.image != VK_NULL_HANDLE) {
+		imgusers[tex.image]--;
+		std::cout << "~UIText()\n";
+		std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+		if (imgusers[tex.image] == 0) {
+			texDestroyFunc(this);
+		}
+	}
+	text = L"";
+	tex = (UIImageInfo){};
+	std::cout << this << " is no more" << std::endl;
+}
+
+void swap(UIText& t1, UIText& t2) {
+	std::cout << "swap\n";
+	swap(static_cast<UIComponent&>(t1), static_cast<UIComponent&>(t2));
+	std::swap(t1.text, t2.text);
+	std::swap(t1.tex, t2.tex);
+}
+
+UIText& UIText::operator=(UIText rhs) {
+	swap(*this, rhs);
+	// imgusers[this->tex.image]++;
+	std::cout << "=\n";
+	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	return *this;
 }
 
 void UIText::genTex() {
@@ -212,6 +290,23 @@ void UIText::genTex() {
 
 // -- Public --
 
+UIDropdown::UIDropdown(UIDropdown&& rhs) noexcept :
+	options(rhs.options),
+	UIComponent(rhs) {
+	rhs.options = {};
+}
+
+UIDropdown::UIDropdown(std::vector<std::wstring> o) {
+	display |= UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN;
+	float height = 0;
+	for (std::wstring& opt : o) {
+		options.emplace_back(opt);
+		std::wcout << "emplaced text " << opt << std::endl;
+		options.back().setPos(this->getPos() + vec2(0, height - options.back().getExt().y));
+		height = options.back().getPos().y;
+	}
+}
+
 std::vector<UIComponent*> UIDropdown::getChildren() {
 	std::vector<UIComponent*> result = {};
 	for (size_t i = 0; i < options.size(); i++) result.push_back(&options[i]);
@@ -229,13 +324,22 @@ std::vector<UIComponent*> UIDropdown::getChildren() {
 
 // -- Public --
 
+UIDropdownButtons::UIDropdownButtons(UIDropdownButtons&& rhs) noexcept :
+	UIDropdown(rhs) {
+	title = std::move(rhs.title);
+}
+
 UIDropdownButtons::UIDropdownButtons(std::wstring t) : title(t), UIDropdown() {
+	this->setExt(title.getExt());
+}
+
+UIDropdownButtons::UIDropdownButtons(std::wstring t, std::vector<std::wstring> o) : title(t), UIDropdown(o) {
 	this->setExt(title.getExt());
 }
 
 std::vector<UIComponent*> UIDropdownButtons::getChildren() {
 	std::vector<UIComponent*> result = UIDropdown::getChildren();
-	result.insert(result.end(), &title);
+	result.insert(result.begin(), &title);
 	return result;
 }
 
@@ -264,6 +368,7 @@ std::vector<UIComponent*> UIDropdownButtons::getChildren() {
 UIRibbon::UIRibbon() : UIComponent(), options({}) {
 	setPos(vec2(0, screenextent.y - 50));
 	setExt(vec2(screenextent.x, 50));
+	display |= UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN;
 }
 
 std::vector<UIComponent*> UIRibbon::getChildren() {
@@ -275,6 +380,21 @@ std::vector<UIComponent*> UIRibbon::getChildren() {
 void UIRibbon::addOption(std::wstring name) {
 	float xlen = options.size() ? options.back().getPos().x + options.back().getExt().x : 0;
 	options.emplace_back(name);
+	options.back().setPos(vec2(50 + xlen, this->getPos().y));
+	options.back().setExt(options.back().getExt() + vec2(50, 0));
+}
+
+void UIRibbon::addOption(UIDropdownButtons&& o) {
+	float xlen = options.size() ? options.back().getPos().x + options.back().getExt().x : 0;
+	options.emplace_back(o);
+	options.back().setPos(vec2(50 + xlen, this->getPos().y));
+	options.back().setExt(options.back().getExt() + vec2(50, 0));
+}
+
+void UIRibbon::addOption(std::wstring t, std::vector<std::wstring> o) {
+	// TODO: consolidate in addOptionInternal
+	float xlen = options.size() ? options.back().getPos().x + options.back().getExt().x : 0;
+	options.emplace_back(t, o);
 	options.back().setPos(vec2(50 + xlen, this->getPos().y));
 	options.back().setExt(options.back().getExt() + vec2(50, 0));
 }

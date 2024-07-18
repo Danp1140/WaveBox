@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <map>
 #include <iostream>
 #include <glm/ext.hpp>
 #include <vulkan/vulkan.hpp>
@@ -10,7 +11,7 @@
 #define UI_DEFAULT_SANS_IDX 2
 #define UI_DEFAULT_BG_COLOR vec4(0.3, 0.3, 0.3, 1)
 #define UI_DEFAULT_HOVER_BG_COLOR vec4(0.4, 0.4, 0.4, 1)
-
+#define UI_DEFAULT_CLICK_BG_COLOR vec4(1, 0.4, 0.4, 1)
 
 using namespace glm;
 
@@ -56,10 +57,17 @@ typedef struct UIPushConstantData {
 typedef uint8_t UIEventFlags;
 
 typedef enum UIEventFlagBits {
-	UI_EVENT_FLAG_NONE = 0x00,
+	UI_EVENT_FLAG_NONE =  0x00,
 	UI_EVENT_FLAG_HOVER = 0x01,
 	UI_EVENT_FLAG_CLICK = 0x02
 } UIEventFlagBits;
+
+typedef uint8_t UIDisplayFlags;
+
+typedef enum UIDisplayFlagBits {
+	UI_DISPLAY_FLAG_SHOW =                 0x01,
+	UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN = 0x02
+} UIDisplayFlagBits;
 
 class UIComponent {
 public:
@@ -72,7 +80,8 @@ public:
 		onClickBegin(defaultOnClickBegin),
 		onClickEnd(defaultOnClickEnd),
 		ds(defaultds), 
-		events(UI_EVENT_FLAG_NONE) {}
+		events(UI_EVENT_FLAG_NONE),
+		display(UI_DISPLAY_FLAG_SHOW) {}
 	UIComponent(vec2 p, vec2 e) : 
 		pcdata({p, e, UI_DEFAULT_BG_COLOR}), 
 		drawFunc(defaultDrawFunc), 
@@ -83,7 +92,8 @@ public:
 		onClickBegin(defaultOnClickBegin),
 		onClickEnd(defaultOnClickEnd),
 		ds(defaultds),
-		events(UI_EVENT_FLAG_NONE) {}
+		events(UI_EVENT_FLAG_NONE),
+		display(UI_DISPLAY_FLAG_SHOW) {}
 	UIComponent(const UIComponent& rhs) :
 		pcdata(rhs.pcdata),
 		drawFunc(rhs.drawFunc),
@@ -94,9 +104,11 @@ public:
 		onClickBegin(rhs.onClickBegin),
 		onClickEnd(rhs.onClickEnd),
 		ds(rhs.ds),
-		events(rhs.events) {}
+		events(rhs.events),
+		display(rhs.display) {}
 	UIComponent(UIComponent&& rhs) noexcept;
 
+	friend void swap(UIComponent& c1, UIComponent& c2);
 
 	virtual std::vector<UIComponent*> getChildren() = 0;
 
@@ -110,6 +122,7 @@ public:
 	static UIImageInfo getNoTex() {return notex;}
 	static void setDefaultDS(VkDescriptorSet d) {defaultds = d;}
 	static void setDefaultDrawFunc(dfType ddf) {defaultDrawFunc = ddf;}
+	void setOnClickBegin(cfType f) {onClickBegin = f;}
 	static void setScreenExtent(vec2 e) {screenextent = e;}
 	UIPushConstantData* getPCDataPtr() {return &pcdata;}
 	// also changes position of children
@@ -119,10 +132,13 @@ public:
 	vec2 getExt() {return pcdata.extent;}
 	void setDS(VkDescriptorSet d) {ds = d;}
 	VkDescriptorSet* getDSPtr() {return &ds;}
+	void setDisplayFlag(UIDisplayFlags f) {display |= f;}
+	void unsetDisplayFlag(UIDisplayFlags f) {display &= ~f;}
 
 protected:
 	UIPushConstantData pcdata;
 	static vec2 screenextent;
+	UIDisplayFlags display;
 
 private:
 	dfType drawFunc;
@@ -142,18 +158,24 @@ class UIText : public UIComponent {
 public:
 	// Note: default constructor does not initialize the texture
 	UIText();
-	UIText(const UIText& rhs) :
-		text(rhs.text),
-		tex(rhs.tex),
-		UIComponent(rhs) {}
+	UIText(const UIText& rhs);
 	UIText(UIText&& rhs) noexcept;
 	UIText(std::wstring t);
 	UIText(std::wstring t, vec2 p); 
 	~UIText();
 
+	friend void swap(UIText& t1, UIText& t2);
+
+	UIText& operator=(UIText rhs);
+	/*
+	UIText& operator=(const UIText&) = delete;
+	UIText& operator=(UIText&&) = delete;
+	*/
+
 	std::vector<UIComponent*> getChildren();
 	UIImageInfo* getTexPtr() {return &tex;}
 	void setText(std::wstring t);
+	const std::wstring& getText() {return text;}
 
 	static void setTexLoadFunc(tfType tf) {texLoadFunc = tf;}
 	static void setTexDestroyFunc(tdfType tdf) {texDestroyFunc = tdf;}
@@ -168,11 +190,17 @@ private:
 	static FT_Face typeface;
 	static tfType texLoadFunc;
 	static tdfType texDestroyFunc;
+	static std::map<VkImage, uint8_t> imgusers;
 };
 
 class UIDropdown : public UIComponent {
 public:
 	UIDropdown() = default;
+	UIDropdown(const UIDropdown& rhs) :
+		options(rhs.options),
+		UIComponent(rhs) {}
+	UIDropdown(UIDropdown&& rhs) noexcept;
+	UIDropdown(std::vector<std::wstring> o);
 
 	std::vector<UIComponent*> getChildren();
 
@@ -183,7 +211,12 @@ private:
 class UIDropdownButtons : public UIDropdown {
 public:
 	UIDropdownButtons() = default;
+	UIDropdownButtons(const UIDropdownButtons& rhs) :
+		title(rhs.title),
+		UIDropdown(rhs) {}
+	UIDropdownButtons(UIDropdownButtons&& rhs) noexcept;
 	UIDropdownButtons(std::wstring t);
+	UIDropdownButtons(std::wstring t, std::vector<std::wstring> o);
 
 	std::vector<UIComponent*> getChildren();
 
@@ -206,6 +239,10 @@ public:
 	std::vector<UIComponent*> getChildren();
 
 	void addOption(std::wstring name);
+	void addOption(UIDropdownButtons&& o);
+	void addOption(std::wstring t, std::vector<std::wstring> o);
+	// TODO: get rid of this function, should be using getChildren() instead
+	std::vector<UIDropdownButtons> getOptions() {return options;}
 
 private:
 	std::vector<UIDropdownButtons> options;

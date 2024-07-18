@@ -89,7 +89,6 @@ UIHandler::UIHandler(GH* g, VkCommandBuffer c, GLFWwindow* w) : gh(g), uicb(c), 
 			UIComponent::getGraphicsPipeline().layout,
 			0u, 1u, c->getDSPtr(),
 			0u, nullptr);
-
 		vkCmdDraw(cb, 6, 1, 0, 0);
 	});
 	UIText::setTexLoadFunc([this] (UIText* self, unorm* d) {
@@ -108,6 +107,8 @@ UIHandler::UIHandler(GH* g, VkCommandBuffer c, GLFWwindow* w) : gh(g), uicb(c), 
 			gh->destroyImage(i);
 		}
 		gh->createImage(i);
+		std::cout << "created img " << i.image << std::endl;
+		std::wcout << L"for text " << self->getText() << std::endl;
 		self->getTexPtr()->image = i.image;
 		self->getTexPtr()->memory = i.memory;
 		self->getTexPtr()->view = i.view;
@@ -139,6 +140,7 @@ UIHandler::UIHandler(GH* g, VkCommandBuffer c, GLFWwindow* w) : gh(g), uicb(c), 
 		i.image = self->getTexPtr()->image;
 		i.memory = self->getTexPtr()->memory;
 		i.view = self->getTexPtr()->view;
+		std::cout << "destroyed image " << i.image << std::endl;
 		gh->destroyImage(i);
 		self->getTexPtr()->image = VK_NULL_HANDLE;
 		self->getTexPtr()->memory = VK_NULL_HANDLE;
