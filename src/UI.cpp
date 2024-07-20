@@ -292,19 +292,21 @@ void UIText::genTex() {
 
 UIDropdown::UIDropdown(UIDropdown&& rhs) noexcept :
 	options(rhs.options),
+	unfolded(std::move(rhs.unfolded)),
+	otherpos(std::move(rhs.otherpos)),
+	otherext(std::move(rhs.otherext)),
 	UIComponent(rhs) {
 	rhs.options = {};
 }
 
-UIDropdown::UIDropdown(std::vector<std::wstring> o) {
+UIDropdown::UIDropdown(std::vector<std::wstring> o) : UIComponent() {
 	display |= UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN;
-	float height = 0;
-	for (std::wstring& opt : o) {
-		options.emplace_back(opt);
-		std::wcout << "emplaced text " << opt << std::endl;
-		options.back().setPos(this->getPos() + vec2(0, height - options.back().getExt().y));
-		height = options.back().getPos().y;
-	}
+	setOptions(o);
+}
+
+UIDropdown::UIDropdown(std::vector<std::wstring> o, vec2 p, vec2 e) : UIComponent(p, e) {
+	display |= UI_DISPLAY_FLAG_OVERFLOWING_CHILDREN;
+	setOptions(o);
 }
 
 std::vector<UIComponent*> UIDropdown::getChildren() {
@@ -313,8 +315,53 @@ std::vector<UIComponent*> UIDropdown::getChildren() {
 	return result;
 }
 
+void UIDropdown::setPos(vec2 p) {
+	vec2 diff = p - pcdata.position;
+	static_cast<UIComponent*>(this)->setPos(p);
+	otherpos += diff;
+}
+
+void UIDropdown::setExt(vec2 e) {
+	otherext.y = otherext.y - getExt().y + e.y;
+	static_cast<UIComponent*>(this)->setExt(e);
+	if (getExt().x > otherext.x) otherext.x = getExt().x;
+}
+
+void UIDropdown::fold() {
+	if (unfolded) {
+		for (UIText& o : options) o.unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		std::swap(pcdata.position, otherpos);
+		std::swap(pcdata.extent, otherext);
+	}
+	unfolded = false;
+}
+
+void UIDropdown::unfold() {
+	if (!unfolded) {
+		for (UIText& o : options) o.setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		std::swap(pcdata.position, otherpos);
+		std::swap(pcdata.extent, otherext);
+	}
+	unfolded = true;
+}
+
 // -- Private --
 
+void UIDropdown::setOptions(std::vector<std::wstring>& o) {
+	fold();
+	otherext = vec2(0, 0);
+	options = std::vector<UIText>();
+	float height = getPos().y;
+	for (std::wstring& opt : o) {
+		options.emplace_back(opt);
+		options.back().setPos(this->getPos() + vec2(0, height - options.back().getExt().y));
+		height = options.back().getPos().y;
+		if (options.back().getExt().x > otherext.x) otherext.x = options.back().getExt().x;
+		options.back().unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+	}
+	otherext.y = getPos().y + getExt().y - options.back().getPos().y;
+	otherpos = options.back().getPos();
+}
 
 /* 
  * ---------------------
@@ -330,11 +377,49 @@ UIDropdownButtons::UIDropdownButtons(UIDropdownButtons&& rhs) noexcept :
 }
 
 UIDropdownButtons::UIDropdownButtons(std::wstring t) : title(t), UIDropdown() {
+	// TODO: consolidate code in below two constructors
 	this->setExt(title.getExt());
+	/*
+	otherext.y += getExt().y;
+	if (getExt().x > otherext.x) otherext.x = getExt().x;
+	*/
+	/*
+	setOnClickBegin([this] (UIComponent* self, void* d) {
+		for (UIText& o : options) {
+			o.setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		}
+		std::swap(pcdata.position, otherpos);
+		std::swap(pcdata.extent, otherext);
+	});
+	*/
 }
 
 UIDropdownButtons::UIDropdownButtons(std::wstring t, std::vector<std::wstring> o) : title(t), UIDropdown(o) {
 	this->setExt(title.getExt());
+	/*
+	otherext.y += getExt().y;
+	if (getExt().x > otherext.x) otherext.x = getExt().x;
+	*/
+	setOnClickBegin([] (UIComponent* self, void* d) {
+		UIDropdownButtons* ddbself = static_cast<UIDropdownButtons*>(self);
+		ddbself->unfold();
+		/*
+		for (UIText& o : ddbself->options) o.setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		std::swap(ddbself->pcdata.position, ddbself->otherpos);
+		std::swap(ddbself->pcdata.extent, ddbself->otherext);
+		*/
+	});
+	setOnHoverEnd([] (UIComponent* self, void* d) {
+		UIDropdownButtons* ddbself = static_cast<UIDropdownButtons*>(self);
+		ddbself->fold();
+		/*
+		if (ddbself->unfolded) {
+			for (UIText& o : ddbself->options) o.unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+			std::swap(ddbself->pcdata.position, ddbself->otherpos);
+			std::swap(ddbself->pcdata.extent, ddbself->otherext);
+		}
+		*/
+	});
 }
 
 std::vector<UIComponent*> UIDropdownButtons::getChildren() {

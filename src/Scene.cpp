@@ -45,7 +45,6 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui
 	UIRibbon* topribbon = new UIRibbon();
 	topribbon->addOption(L"File", {L"Info", L"Quit"});
 	topribbon->getChildren().back()->getChildren()[1]->setOnClickBegin([infotext] (UIComponent* self, void* d) {
-		std::cout<<"shoflag\n\n\n";
 		infotext->setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
 	});
 	topribbon->getChildren().back()->getChildren().back()->setOnClickBegin([this] (UIComponent* self, void* d) {

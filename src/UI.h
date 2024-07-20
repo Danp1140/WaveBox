@@ -72,6 +72,7 @@ typedef enum UIDisplayFlagBits {
 class UIComponent {
 public:
 	UIComponent() : 
+		pcdata({vec2(0, 0), vec2(0, 0), UI_DEFAULT_BG_COLOR}),
 		drawFunc(defaultDrawFunc), 
 		onHover(defaultOnHover),
 		onHoverBegin(defaultOnHoverBegin),
@@ -123,6 +124,7 @@ public:
 	static void setDefaultDS(VkDescriptorSet d) {defaultds = d;}
 	static void setDefaultDrawFunc(dfType ddf) {defaultDrawFunc = ddf;}
 	void setOnClickBegin(cfType f) {onClickBegin = f;}
+	void setOnHoverEnd(cfType f) {onHoverEnd = f;}
 	static void setScreenExtent(vec2 e) {screenextent = e;}
 	UIPushConstantData* getPCDataPtr() {return &pcdata;}
 	// also changes position of children
@@ -195,17 +197,35 @@ private:
 
 class UIDropdown : public UIComponent {
 public:
-	UIDropdown() = default;
+	UIDropdown() : 
+		options({}),
+		unfolded(false),
+		otherpos(vec2(0, 0)),
+		otherext(vec2(0, 0)),
+		UIComponent() {}
 	UIDropdown(const UIDropdown& rhs) :
 		options(rhs.options),
+		unfolded(rhs.unfolded),
+		otherpos(rhs.otherpos),
+		otherext(rhs.otherext),
 		UIComponent(rhs) {}
 	UIDropdown(UIDropdown&& rhs) noexcept;
 	UIDropdown(std::vector<std::wstring> o);
+	UIDropdown(std::vector<std::wstring> o, vec2 p, vec2 e);
 
 	std::vector<UIComponent*> getChildren();
+	void setPos(vec2 p);
+	void setExt(vec2 e);
+	void fold();
+	void unfold();
+
+protected:
+	bool unfolded;
+	vec2 otherpos, otherext;
+	std::vector<UIText> options;
 
 private:
-	std::vector<UIText> options;
+	void setOptions(std::vector<std::wstring>& o);
 };
 
 class UIDropdownButtons : public UIDropdown {
