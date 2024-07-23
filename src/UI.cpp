@@ -111,6 +111,23 @@ void UIComponent::setPos(vec2 p) {
 	for (UIComponent* c : getChildren()) c->setPos(c->getPos() + diff);
 }
 
+void UIComponent::show() {
+	// should technically re-listen for mousepos & click
+	setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+}
+
+void UIComponent::hide() {
+	unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+	if (events & UI_EVENT_FLAG_HOVER) {
+		events &= ~UI_EVENT_FLAG_HOVER;
+		onHoverEnd(this, nullptr);
+	}
+	if (events & UI_EVENT_FLAG_CLICK) {
+		events &= ~UI_EVENT_FLAG_CLICK;
+		onClickEnd(this, nullptr);
+	}
+}
+
 // -- Private --
 
 cfType UIComponent::defaultOnHover = [] (UIComponent* self, void* d) {};
@@ -329,7 +346,7 @@ void UIDropdown::setExt(vec2 e) {
 
 void UIDropdown::fold() {
 	if (unfolded) {
-		for (UIText& o : options) o.unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		for (UIText& o : options) o.hide();
 		std::swap(pcdata.position, otherpos);
 		std::swap(pcdata.extent, otherext);
 	}
@@ -338,7 +355,7 @@ void UIDropdown::fold() {
 
 void UIDropdown::unfold() {
 	if (!unfolded) {
-		for (UIText& o : options) o.setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		for (UIText& o : options) o.show();
 		std::swap(pcdata.position, otherpos);
 		std::swap(pcdata.extent, otherext);
 	}
@@ -357,7 +374,7 @@ void UIDropdown::setOptions(std::vector<std::wstring>& o) {
 		options.back().setPos(this->getPos() + vec2(0, height - options.back().getExt().y));
 		height = options.back().getPos().y;
 		if (options.back().getExt().x > otherext.x) otherext.x = options.back().getExt().x;
-		options.back().unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+		options.back().hide();
 	}
 	otherext.y = getPos().y + getExt().y - options.back().getPos().y;
 	otherpos = options.back().getPos();
@@ -403,22 +420,10 @@ UIDropdownButtons::UIDropdownButtons(std::wstring t, std::vector<std::wstring> o
 	setOnClickBegin([] (UIComponent* self, void* d) {
 		UIDropdownButtons* ddbself = static_cast<UIDropdownButtons*>(self);
 		ddbself->unfold();
-		/*
-		for (UIText& o : ddbself->options) o.setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
-		std::swap(ddbself->pcdata.position, ddbself->otherpos);
-		std::swap(ddbself->pcdata.extent, ddbself->otherext);
-		*/
 	});
 	setOnHoverEnd([] (UIComponent* self, void* d) {
 		UIDropdownButtons* ddbself = static_cast<UIDropdownButtons*>(self);
 		ddbself->fold();
-		/*
-		if (ddbself->unfolded) {
-			for (UIText& o : ddbself->options) o.unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
-			std::swap(ddbself->pcdata.position, ddbself->otherpos);
-			std::swap(ddbself->pcdata.extent, ddbself->otherext);
-		}
-		*/
 	});
 }
 

@@ -136,6 +136,8 @@ public:
 	VkDescriptorSet* getDSPtr() {return &ds;}
 	void setDisplayFlag(UIDisplayFlags f) {display |= f;}
 	void unsetDisplayFlag(UIDisplayFlags f) {display &= ~f;}
+	void show();
+	void hide();
 
 protected:
 	UIPushConstantData pcdata;

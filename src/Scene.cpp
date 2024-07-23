@@ -51,6 +51,17 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui
 		glfwSetWindowShouldClose(gh->primarywindow, GL_TRUE);
 	});
 	topribbon->addOption(L"View", {L"Open Shading Menu", L"Toggle Skybox"});
+	topribbon->getChildren().back()->getChildren()[2]->setOnClickBegin([this] (UIComponent* self, void* d) {
+		if (recfuncs[3]) recfuncs[3] = nullptr;
+		else {
+			cbRecData data {
+				nullptr, nullptr,
+				reinterpret_cast<void *>(&envpcdata),
+				envdescriptorset
+			};
+			recfuncs[3] = cbRecFunc([data] (VkCommandBuffer& cb) {Scene::recordGraphicsCommandBuffer(cb, data);});
+		}
+	});
 	topribbon->addOption(L"Tools", {L"Add Wave", L"Delete Wave", L"Add Seafloor"});
 	ui.addRoot(topribbon);
 	ui.addRoot(infotext);
