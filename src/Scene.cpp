@@ -66,13 +66,13 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui
 	ui.addRoot(topribbon);
 	ui.addRoot(infotext);
 
-	//ui.addRoot(new UIText(L"Framerate Goes Here", vec2(3584 - 300, 2240 - 50)));
+	ui.addRoot(new UIText(L"Framerate Goes Here", vec2(3584 - 300, 2240 - 50)));
 }
 
 Scene::~Scene() {
 	delete (UIRibbon*)ui.getRoots()[0];
-	//delete (UIText*)ui.getRoots()[1];
 	delete (UIText*)ui.getRoots()[1];
+	delete (UIText*)ui.getRoots()[2];
 	terminateDescriptorSets();
 	terminateEnvMap();
 	// for (uint8_t i = 0; i < 3; i++) recfuncs[i].~function();
@@ -82,7 +82,7 @@ Scene::~Scene() {
 void Scene::draw() {
 	dt = glfwGetTime() - lastt;
 	lastt = dt + lastt;
-	// reinterpret_cast<UIText*>(ui.getRoots().back())->setText(std::to_wstring(1 / dt) + L"fps");
+	reinterpret_cast<UIText*>(ui.getRoots().back())->setText(std::to_wstring(1 / dt) + L"fps");
 	cam->update(gh->primarywindow, dt);
 	updatePCs();
 	gh->loop(recfuncs);

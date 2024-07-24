@@ -202,7 +202,7 @@ UIText::UIText(UIText&& rhs) noexcept :
 UIText::UIText(std::wstring t) : UIText() {
 	text = t;
 	genTex();
-	imgusers[tex.image]++;
+	// imgusers[tex.image]++;
 	std::cout << "UIText(1)\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 }
@@ -211,7 +211,7 @@ UIText::UIText(std::wstring t, vec2 p) : UIComponent(p, vec2(0)) {
 	// TODO: figure out how to call this other constructor
 	text = t;
 	genTex();
-	imgusers[tex.image]++;
+	// imgusers[tex.image]++;
 	std::cout << "UIText(2)\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
 }
@@ -296,7 +296,10 @@ void UIText::genTex() {
 
 	pcdata.extent = vec2(hres, vres);
 
+	if (tex.image != VK_NULL_HANDLE) imgusers[tex.image]--;
+	// TODO: allow for regeneration of (static size) texture
 	texLoadFunc(this, texturedata);
+	imgusers[tex.image]++;
 }
 
 /* 
