@@ -3,7 +3,7 @@
 PipelineInfo Scene::skyboxgraphicspipeline = {};
 VkSampler Scene::skyboxsampler = VK_NULL_HANDLE;
 
-Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)){
+Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)), ui(graphicshandler, VK_NULL_HANDLE, graphicshandler->primarywindow) {
 	gh = graphicshandler;
 
 	if (skyboxgraphicspipeline.pipeline == VK_NULL_HANDLE) {
@@ -39,9 +39,40 @@ Scene::Scene(GH* graphicshandler, Camera* c) : ocean(Ocean(graphicshandler)){
 	record();
 	lastt = glfwGetTime();
 
+	UIText* infotext = new UIText(L"Information text goes here! 😎");
+	infotext->setPos(vec2(1000, 1000));
+	infotext->unsetDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+	UIRibbon* topribbon = new UIRibbon();
+	topribbon->addOption(L"File", {L"Info", L"Quit"});
+	topribbon->getChildren().back()->getChildren()[1]->setOnClickBegin([infotext] (UIComponent* self, void* d) {
+		infotext->setDisplayFlag(UI_DISPLAY_FLAG_SHOW);
+	});
+	topribbon->getChildren().back()->getChildren().back()->setOnClickBegin([this] (UIComponent* self, void* d) {
+		glfwSetWindowShouldClose(gh->primarywindow, GL_TRUE);
+	});
+	topribbon->addOption(L"View", {L"Open Shading Menu", L"Toggle Skybox"});
+	topribbon->getChildren().back()->getChildren()[2]->setOnClickBegin([this] (UIComponent* self, void* d) {
+		if (recfuncs[3]) recfuncs[3] = nullptr;
+		else {
+			cbRecData data {
+				nullptr, nullptr,
+				reinterpret_cast<void *>(&envpcdata),
+				envdescriptorset
+			};
+			recfuncs[3] = cbRecFunc([data] (VkCommandBuffer& cb) {Scene::recordGraphicsCommandBuffer(cb, data);});
+		}
+	});
+	topribbon->addOption(L"Tools", {L"Add Wave", L"Delete Wave", L"Add Seafloor"});
+	ui.addRoot(topribbon);
+	ui.addRoot(infotext);
+
+	ui.addRoot(new UIText(L"Framerate Goes Here", vec2(3584 - 300, 2240 - 50)));
 }
 
 Scene::~Scene() {
+	delete (UIRibbon*)ui.getRoots()[0];
+	delete (UIText*)ui.getRoots()[1];
+	delete (UIText*)ui.getRoots()[2];
 	terminateDescriptorSets();
 	terminateEnvMap();
 	// for (uint8_t i = 0; i < 3; i++) recfuncs[i].~function();
@@ -51,6 +82,7 @@ Scene::~Scene() {
 void Scene::draw() {
 	dt = glfwGetTime() - lastt;
 	lastt = dt + lastt;
+	reinterpret_cast<UIText*>(ui.getRoots().back())->setText(std::to_wstring(1 / dt) + L"fps");
 	cam->update(gh->primarywindow, dt);
 	updatePCs();
 	gh->loop(recfuncs);
@@ -84,7 +116,7 @@ void Scene::recordGraphicsCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
 
 void Scene::record() {
 	if (recfuncs) delete[] recfuncs;
-	recfuncs = new cbRecFunc[5];
+	recfuncs = new cbRecFunc[6];
 	cbRecData data {
 		ocean.floor->getVertexBufferPtr(), 
 		ocean.floor->getIndexBufferPtr(), 
@@ -106,6 +138,11 @@ void Scene::record() {
 	data.pcdata = reinterpret_cast<void *>(ocean.getGraphicsPCDataPtr());
 	data.ds = ocean.getGraphicsDescriptorSet();
 	recfuncs[0] = cbRecFunc([data] (VkCommandBuffer& cb) {Ocean::recordGraphicsCommandBuffer(cb, data);});
+	UIHandler* utemp = &ui;
+	recfuncs[5] = cbRecFunc([utemp] (VkCommandBuffer& cb) {
+		utemp->setCommandBuffer(cb);
+		utemp->draw();
+	});
 }
 
 void Scene::updatePCs() {

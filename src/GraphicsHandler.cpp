@@ -370,7 +370,7 @@ void GH::terminateCommandBuffers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 21},
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2},
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
 	};
@@ -378,7 +378,7 @@ void GH::initDescriptorPoolsAndSetLayouts() {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		12,
+		25,
 		3, &poolsizes[0]
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -981,6 +981,11 @@ void GH::destroyImage(ImageInfo& i) {
 	vkDestroyImageView(logicaldevice, i.view, nullptr);
 	freeDeviceMemory(i.memory);
 	vkDestroyImage(logicaldevice, i.image, nullptr);
+	/*
+	i.view = VK_NULL_HANDLE;
+	i.memory = VK_NULL_HANDLE;
+	i.image = VK_NULL_HANDLE;
+	*/
 }
 
 void GH::updateHostCoherentBuffer(BufferInfo& bi, void* data) {
@@ -1068,11 +1073,12 @@ void GH::recordPrimaryCommandBuffer(cbRecFunc* rectasks) {
 	};
 	vkCmdBeginRenderPass(primarycommandbuffers[fifindex], &rpbi, VK_SUBPASS_CONTENTS_INLINE);
 
-	rectasks[3](primarycommandbuffers[fifindex]);
+	if (rectasks[3]) rectasks[3](primarycommandbuffers[fifindex]);
 
 	rectasks[2](primarycommandbuffers[fifindex]);
 	rectasks[0](primarycommandbuffers[fifindex]);
 	//for (auto rt : rectasks) rt(primarycommandbuffers[fifindex]);
+	rectasks[5](primarycommandbuffers[fifindex]);
 
 	vkCmdEndRenderPass(primarycommandbuffers[fifindex]);
 	vkEndCommandBuffer(primarycommandbuffers[fifindex]);

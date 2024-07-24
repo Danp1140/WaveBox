@@ -8,6 +8,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Metal -framewor
 
 include_directories(include)
 include_directories(include/vulkan)
+include_directories(include/freetype)
 link_directories(libs)
 link_directories(libs/vulkan)
 
@@ -18,7 +19,9 @@ add_executable(WaveBox src/main.cpp
 	src/Scene.cpp src/Scene.h
 	src/Drawable.cpp src/Drawable.h
 	src/Mesh.cpp src/Mesh.h
+	src/UI.cpp src/UI.h
+	src/UIHandler.cpp src/UIHandler.h
 )
 
 # using an outdated libpng.a because my up-to-date build for the headers we're using didn't provide me one lol
-target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 glfw3 z png -m64)
+target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 glfw3 z png freetype bz2 -m64)
