@@ -177,7 +177,7 @@ UIText::UIText() : text(L""), tex({}) {
 		FT_New_Face(ft, UI_DEFAULT_SANS_FILEPATH, UI_DEFAULT_SANS_IDX, &typeface); 
 	}
 	tex = {};
-	std::cout << "UIText()\n";
+	// std::cout << "UIText()\n";
 }
 
 UIText::UIText(const UIText& rhs) :
@@ -185,53 +185,61 @@ UIText::UIText(const UIText& rhs) :
 		tex(rhs.tex),
 		UIComponent(rhs) {
 	imgusers[tex.image]++;
+	/*
 	std::cout << "cpy\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	*/
 }
 
 UIText::UIText(UIText&& rhs) noexcept :
 	text(std::move(rhs.text)),
 	tex(std::move(rhs.tex)),
 	UIComponent(rhs) {
+	/*
 	std::cout << "move\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	*/
 	rhs.tex = (UIImageInfo){};
-	std::cout << &rhs << " => " << this << std::endl;
+	// std::cout << &rhs << " => " << this << std::endl;
 }
 
 UIText::UIText(std::wstring t) : UIText() {
 	text = t;
 	genTex();
-	// imgusers[tex.image]++;
+	/*
 	std::cout << "UIText(1)\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	*/
 }
 
 UIText::UIText(std::wstring t, vec2 p) : UIComponent(p, vec2(0)) {
 	// TODO: figure out how to call this other constructor
 	text = t;
 	genTex();
-	// imgusers[tex.image]++;
+	/*
 	std::cout << "UIText(2)\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	*/
 }
 
 UIText::~UIText() {
 	if (tex.image != VK_NULL_HANDLE) {
 		imgusers[tex.image]--;
+		/*
 		std::cout << "~UIText()\n";
 		std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+		*/
 		if (imgusers[tex.image] == 0) {
 			texDestroyFunc(this);
 		}
 	}
 	text = L"";
 	tex = (UIImageInfo){};
-	std::cout << this << " is no more" << std::endl;
+	// std::cout << this << " is no more" << std::endl;
 }
 
 void swap(UIText& t1, UIText& t2) {
-	std::cout << "swap\n";
+	// std::cout << "swap\n";
 	swap(static_cast<UIComponent&>(t1), static_cast<UIComponent&>(t2));
 	std::swap(t1.text, t2.text);
 	std::swap(t1.tex, t2.tex);
@@ -239,9 +247,10 @@ void swap(UIText& t1, UIText& t2) {
 
 UIText& UIText::operator=(UIText rhs) {
 	swap(*this, rhs);
-	// imgusers[this->tex.image]++;
+	/*
 	std::cout << "=\n";
 	std::cout << (int)imgusers[tex.image] << " users of " << tex.image << std::endl;
+	*/
 	return *this;
 }
 
