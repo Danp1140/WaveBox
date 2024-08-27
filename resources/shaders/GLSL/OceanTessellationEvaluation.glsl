@@ -54,5 +54,5 @@ void main() {
 	gl_Position = vertexposition + heightvec; // we're not doing any w math rn, but maybe we should for clipping??
 	*/
 	gl_Position = constants.cameravp * (vertexposition + vec4(0, height, 0, 0));
-		posout = vertexposition.xyz + vec3(0, height, 0);
+	posout = vertexposition.xyz + vec3(0, height, 0);
 }

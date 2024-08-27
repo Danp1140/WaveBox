@@ -13,7 +13,7 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	scale = 100.;
 	floor = new Mesh(); // bodgey workaround to have dummy AABB for framebuffer creation, TODO: refine later
 
-	LinearWaveData ltemp = LinearWaveData(1.0, 15.0, 100.0, glm::vec2(1., 1.));
+	LinearWaveData ltemp = LinearWaveData(5, 10.0, 100.0, glm::vec2(0., 1.));
 	waves.emplace_back(ltemp, DEPTH_TYPE_CONSTANT);
 	//ltemp = LinearWaveData(1.0, 7.0, 5.0, glm::vec2(1., 0.));
 	//ltemp = LinearWaveData(1.0, 10.0, 100.0, glm::vec2(1., 0.));
@@ -35,11 +35,8 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	floor = new Mesh(&depthmap);
 	generateDepthMap();
 	floor->getGraphicsPCDataPtr()->flags = DTH_GRAPHICS_FLAG_NO_DIFFUSE_TEXTURE;
-
 	graphicspcdata.flags = DTH_GRAPHICS_FLAG_SSRR;
-
 	waves.back().linear.addkMap(g, depthmap);
-	
 	initDescriptorSets();
 }
 
@@ -110,7 +107,6 @@ void Ocean::initGraphicsPipeline() {
 	graphicspipeline.depthtest = true;
 
 	gh->createPipeline(graphicspipeline);
-
 }
 
 void Ocean::initComputePipeline() {
@@ -122,19 +118,19 @@ void Ocean::initComputePipeline() {
 		sizeof(OceanComputePCData)
 	};
 	VkDescriptorSetLayoutBinding dslbindings[4] {{
-		0, // heightmap
+		0,
 		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		1,
 		VK_SHADER_STAGE_COMPUTE_BIT,
 		nullptr
 	}, {
-		1, // wave info buffer
+		1,
 		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 		1,
 		VK_SHADER_STAGE_COMPUTE_BIT,
 		nullptr
 	}, {
-		2, // depth map
+		2,
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1,
 		VK_SHADER_STAGE_COMPUTE_BIT,
@@ -388,7 +384,7 @@ void Ocean::initDescriptorSets() {
 		&di[0], nullptr);
 
 	VkDescriptorImageInfo ii[4] = {
-		{heightmapsampler, heightmap.view, heightmap.layout}, 
+		{heightmapsampler, heightmap.view, heightmap.layout},
 		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
 		{heightmapsampler, depthmap.view, depthmap.layout},
 		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
@@ -404,6 +400,7 @@ void Ocean::initDescriptorSets() {
 		computepipeline.dsl, 
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
 		&ii[0], &bi[0]);
+
 
 	VkDescriptorImageInfo pii[3] = {
 		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
@@ -421,7 +418,6 @@ void Ocean::initDescriptorSets() {
 		propertycomputepipeline.dsl, 
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
 		&pii[0], &pbi[0]);
-
 }
 
 void Ocean::terminateDescriptorSets() {
@@ -481,7 +477,7 @@ float Ocean::inverseDispersionRelation(float omega, float d) {
 	// could be made more efficient w/ opt init conditions
 	const float stepsize = 0.1;
 	float k1, k2, k3, k4, kn = 0.01;
-	auto dkdo = [](float df, float kf) {
+	auto dkdo = [] (float df, float kf) {
 		return (2 * sqrt(9.8 * kf * tanh(kf * df)))
 			/ (9.8 * (tanh(kf * df) + kf * df * pow(1 / cosh(kf * df), 2)));
 	};
@@ -491,10 +487,11 @@ float Ocean::inverseDispersionRelation(float omega, float d) {
 		k2 = dkdo(d, kn + stepsize * k1 / 2);
 		k3 = dkdo(d, kn + stepsize * k2 / 2);
 		k4 = dkdo(d, kn + stepsize * k3);
-		kn += stepsize / 6 * (k1 + 2 * k2 + 2 * k3 + k4);	
-		std::cout << "omega = " << o << " => k = " << kn << std::endl;
+		kn += stepsize / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+		// std::cout << "omega = " << o << " => k = " << kn << std::endl;
 	}
 	return kn;
+
 }
 
 void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indices) {
@@ -528,13 +525,6 @@ void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indi
 	if (sidewalls) {
 		uint32_t vertend = vertices.size();
 		for (uint32_t y = 0; y < n ; y++) {
-			/*
-			vertices.push_back({
-				glm::vec3(vertices[y].position.x, 0, vertices[y].position.z),
-				glm::vec2(0, 0),
-				glm::vec3(1, 0, 0)
-			});
-			*/
 			vertices.push_back({
 				glm::vec3(vertices[y].position.x, -scale, vertices[y].position.z),
 				glm::vec2(0, 0),
@@ -549,16 +539,6 @@ void Ocean::generateMesh(std::vector<Vertex>& vertices, std::vector<Index>& indi
 			indices.push_back(y + 1);
 			indices.push_back(vertend + y);
 			indices.push_back(vertend + y + 1);
-
-			/*
-			indices.push_back(vertend + 2 * y);
-			indices.push_back(vertend + 2 * y + 1);
-			indices.push_back(vertend + 2 * y + 2);
-
-			indices.push_back(vertend + 2 * y + 2);
-			indices.push_back(vertend + 2 * y + 1);
-			indices.push_back(vertend + 2 * y + 1 + 2);
-			*/
 		}
 
 		uint32_t newvertend = vertices.size();
@@ -660,15 +640,14 @@ void Ocean::generateDepthMap() {
 		for (uint32_t y = 0; y < depthmap.extent.height; y++) {
 			/*
 			data[x * depthmap.extent.height + y] = sqrt(pow(float(x) / float(depthmap.extent.width), 2.) + pow(float(y) / float(depthmap.extent.height), 2.)) 
-				* sqrt(float(x) / float(depthmap.extent.width) * 10.) 
-				* 10. - 30.; 
-				*/
+			* sqrt(float(x) / float(depthmap.extent.width) * 10.) 
+			* 10. - 30.; 
+			*/
 			// data[x * depthmap.extent.height + y] = -0.5 - pow(10 * (float(y) / depthmap.extent.height - 0.5), 2) - pow(5 * (float(x) / depthmap.extent.width - 0.5), 2);
 			data[x * depthmap.extent.height + y] = 0.;
 		}
 	}
 	gh->updateImage(depthmap, reinterpret_cast<void*>(data));
 	delete[] data;
-
 	computepcdata.flags |= OCEAN_COMPUTE_FLAG_DEPTH_MAP_CHANGE;
 }
