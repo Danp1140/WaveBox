@@ -21,23 +21,21 @@ typedef struct DepthPCData {
 
 // in GLSL, we can use aliasing to access different kinds of waves accurately!
 typedef enum WaveType {
-	WAVE_TYPE_LINEAR
+	WAVE_TYPE_LINEAR,
+	WAVE_TYPE_CNOIDAL
 } WaveType;
 
 // function type hard to implement given that GLSL doesn't have function pointers
 typedef enum DepthType {
 	DEPTH_TYPE_CONSTANT,
 	// DEPTH_TYPE_FUNCTION,
-	DEPTH_TYPE_MAPPED
+	DEPTH_TYPE_MAPPED // still unsure if/how we use these....
 } DepthType;
-
-// typedef std::function<float (float, float)> depthFunc;
 
 typedef struct DepthData {
 	DepthType type;
 	union {
 		float d;
-		//depthFunc df;
 		ImageInfo dm;
 	};
 } DepthData;
@@ -47,6 +45,7 @@ typedef struct DepthData {
 typedef struct LinearWaveData {
 	glm::vec2 k = glm::vec2(0.);
 	float H = 0., omega = 0., d = 0.;
+	float padding;
 	
 	ImageInfo kmap = {}; // this shouldn't get sent over to the shader
 
@@ -74,6 +73,48 @@ typedef struct LinearWaveData {
 	}
 } LinearWaveData;
 
+#define CNOIDAL_WAVE_NUM_MACLAURIN_TERMS 6
+typedef struct CnoidalSupplementalData {
+	uint32_t correspondingwaveidx = -1u;
+	float m = 0, bigK = 1.57;
+	float snMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS], 
+	      cnMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS], 
+	      dnMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS];
+
+	CnoidalSupplementalData(uint32_t i, float ellipticalm) {
+		correspondingwaveidx = i;
+		setM(ellipticalm);
+	}
+
+	void setM(float ellipticalm) {
+		m = ellipticalm;
+		snMaclaurinTerms[0] = 1;
+		snMaclaurinTerms[1] = - (1 + m) / 6;
+		snMaclaurinTerms[2] = (1 + pow(m, 2) + 14 * m) / 120;
+		snMaclaurinTerms[3] = - (1 + pow(m, 3) + 135 * m * (1 + m)) / 5040;
+		snMaclaurinTerms[4] = (1 + pow(m, 5) + 11069 * m * (1 + pow(m, 3)) + 165826 * pow(m, 2) * (1 + m)) / 39916800;
+		snMaclaurinTerms[5] = (1 + pow(m, 6) + 99642 * m * (1 + pow(m, 4)) + 4494351 * pow(m, 2) * (1 + pow(m, 2)) + 13180268 * pow(m, 3)) / 6227020800;
+
+		cnMaclaurinTerms[0] = 1;
+		cnMaclaurinTerms[1] = - 0.5;
+		cnMaclaurinTerms[2] = (1 + 4 * m) / 24;
+		cnMaclaurinTerms[3] = - (1 + 44 * m + 16 * pow(m, 2)) / 720;
+		cnMaclaurinTerms[4] = (1 + 408 * m + 912 * pow(m, 2) + 64 * pow(m, 3)) / 40320;
+		cnMaclaurinTerms[5] = (1 + 33212 * m + 870640 * pow(m, 2) + 1538560 * pow(m, 3) + 249328 * pow(m, 4) + 1024 * pow(m, 5)) / 479001600;
+
+		dnMaclaurinTerms[0] = 1;
+		dnMaclaurinTerms[1] = - m / 2;
+		dnMaclaurinTerms[2] = (4 * m + pow(m, 2)) / 24;
+		dnMaclaurinTerms[3] = - (16 * m + 44 * pow(m, 2) + pow(m, 3)) / 720;
+		dnMaclaurinTerms[4] = (64 * m + 912 * pow(m, 2) + 408 * pow(m, 3) + pow(m, 4)) / 40320;
+		dnMaclaurinTerms[5] = (1024 * m + 259328 * pow(m, 2) + 1538560 * pow(m, 3) + 870640 * pow(m, 4) + 33212 * pow(m, 5) + pow(m, 6)) / 479001600;
+		
+		bigK = 1 + pow(m, 2) / 4 + 9 * pow(m, 4) / 64 + 25 * pow(m, 6) / 256 + 1225 * pow(m, 8) / 16384
+			 + 15875 * pow(m, 10) / 262144 + 53325 * pow(m, 12) / 1048576 + 2936375 * pow(m, 14) / 67108864;
+		bigK *= 1.57;
+	}
+} CnoidalSupplementalData;
+
 typedef struct Wave {
 	WaveType wavetype;
 	DepthType depthtype;
@@ -87,6 +128,44 @@ typedef struct Wave {
 		depthtype = d;
 	}
 } Wave;
+
+typedef struct BaseWaveData {
+	WaveType wavetype;
+	DepthType depthtype;
+	glm::vec2 k = glm::vec2(0.);
+	float H = 0., omega = 0., d = 0.;
+	float padding;
+	
+	ImageInfo kmap = {}; // this shouldn't get sent over to the shader
+
+	BaseWaveData(WaveType wtype, DepthType dtype, float height, float length, float depth, glm::vec2 khat) {
+		wavetype = wtype;
+		depthtype = dtype;
+		H = height;
+		float Kmag = 6.28 / length;
+		k = Kmag * glm::normalize(khat);
+		d = depth;
+		omega = sqrt(9.8 * Kmag * tanh(Kmag * d));
+	}
+
+	size_t sizeForShaders() {return offsetof(BaseWaveData, kmap);}
+
+	void addkMap(GH* g, ImageInfo& depth) {
+		kmap.extent = {depth.extent.width, depth.extent.height};
+		kmap.format = VK_FORMAT_R16G16_SFLOAT;
+		kmap.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+		kmap.layout = VK_IMAGE_LAYOUT_GENERAL;
+		g->createImage(kmap);
+	}
+
+	void print() {
+		std::cout << "LinearWaveData {\n\tH = "
+			<< H << "\n\tomega = " 
+			<< omega << "\n\td = "
+			<< d << "\n\tk = {" << k.x << ", " << k.y << "}\n}" << std::endl;
+	}
+} BaseWaveData;
+
 
 /* 
  * if/when we implement any other kind of object that is rendered, we should probably have a subclass that ensures
@@ -122,7 +201,7 @@ public:
 	static std::vector<Wave> piersonMoskowitzSample(uint8_t n);
 
 private:
-	BufferInfo wavebuffer;
+	BufferInfo wavebuffer, cnoidalsupplementalbuffer;
 	ImageInfo heightmap, depthmap;
 	DTHGraphicsPCData graphicspcdata;
 	OceanComputePCData computepcdata;
@@ -131,7 +210,8 @@ private:
 	uint8_t presubdivision;
 	bool sidewalls;
 
-	std::vector<Wave> waves;
+	std::vector<BaseWaveData> waves;
+	std::vector<CnoidalSupplementalData> cndata;
 
 	void initRenderpass();
 	void terminateRenderpass();

@@ -13,13 +13,16 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	scale = 100.;
 	floor = new Mesh(); // bodgey workaround to have dummy AABB for framebuffer creation, TODO: refine later
 
+	/*
 	LinearWaveData ltemp = LinearWaveData(5, 10.0, 100.0, glm::vec2(0., 1.));
 	waves.emplace_back(ltemp, DEPTH_TYPE_CONSTANT);
-	//ltemp = LinearWaveData(1.0, 7.0, 5.0, glm::vec2(1., 0.));
-	//ltemp = LinearWaveData(1.0, 10.0, 100.0, glm::vec2(1., 0.));
-	//waves.emplace_back(ltemp, DEPTH_TYPE_CONSTANT);
-	// waves = piersonMoskowitzSample(10);
-	
+	*/
+
+	// LinearWaveData ltemp = LinearWaveData(1, 10, 100, glm::vec2(1, 0));
+	waves.emplace_back(WAVE_TYPE_LINEAR, DEPTH_TYPE_CONSTANT, 0, 10, 100, glm::vec2(1, 1));
+	waves.emplace_back(WAVE_TYPE_CNOIDAL, DEPTH_TYPE_CONSTANT, 1, 50, 100, glm::vec2(1, 0));
+	cndata.emplace_back(1, 0.99);
+
 	initRenderpass();
 	initFramebuffer();
 	initDepthPipeline();
@@ -36,12 +39,13 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	generateDepthMap();
 	floor->getGraphicsPCDataPtr()->flags = DTH_GRAPHICS_FLAG_NO_DIFFUSE_TEXTURE;
 	graphicspcdata.flags = DTH_GRAPHICS_FLAG_SSRR;
-	waves.back().linear.addkMap(g, depthmap);
+	waves[0].addkMap(g, depthmap);
+	waves[1].addkMap(g, depthmap);
 	initDescriptorSets();
 }
 
 Ocean::~Ocean() {
-	gh->destroyImage(waves.back().linear.kmap); // again, quick and dirty for quick proof of concept
+	gh->destroyImage(waves.back().kmap); // again, quick and dirty for quick proof of concept
 	gh->destroyPipeline(depthpipeline);
 	terminateFramebuffer();
 	terminateRenderpass();
@@ -117,7 +121,7 @@ void Ocean::initComputePipeline() {
 		0u,
 		sizeof(OceanComputePCData)
 	};
-	VkDescriptorSetLayoutBinding dslbindings[4] {{
+	VkDescriptorSetLayoutBinding dslbindings[5] {{
 		0,
 		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		1,
@@ -131,12 +135,18 @@ void Ocean::initComputePipeline() {
 		nullptr
 	}, {
 		2,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 		1,
 		VK_SHADER_STAGE_COMPUTE_BIT,
 		nullptr
 	}, {
 		3,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_COMPUTE_BIT,
+		nullptr
+	}, {
+		4,
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1, // this should really be whatever number we're capping shoaling waves at
 		VK_SHADER_STAGE_COMPUTE_BIT,
@@ -146,7 +156,7 @@ void Ocean::initComputePipeline() {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		4, &dslbindings[0]
+		5, &dslbindings[0]
 	};
 
 	gh->createPipeline(computepipeline);
@@ -255,7 +265,7 @@ void Ocean::recordComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
 		computepipeline.layout,
 		0u, 1u, &data.ds,
 		0u, nullptr);
-	vkCmdDispatch(cb, HEIGHT_MAP_RESOLUTION, HEIGHT_MAP_RESOLUTION, 1);
+	vkCmdDispatch(cb, HEIGHT_MAP_RESOLUTION, HEIGHT_MAP_RESOLUTION, 2);
 }
 
 void Ocean::recordPropertyComputeCommandBuffer(VkCommandBuffer& cb, cbRecData data) {
@@ -357,16 +367,30 @@ void Ocean::initBuffers() {
 	generateMesh(verttemp, idxtemp);
 
 	gh->createVertexAndIndexBuffers(vertexbuffer, indexbuffer, verttemp, idxtemp);
-	
-	wavebuffer.size = waves.size() * sizeof(Wave);
+
+	wavebuffer.size = waves.size() * offsetof(BaseWaveData, kmap);
+	void* temp = malloc(wavebuffer.size);
+	char* scan = static_cast<char*>(temp);
+	for (const BaseWaveData& w : waves) {
+		memcpy(scan, &w, offsetof(BaseWaveData, kmap));
+		scan += offsetof(BaseWaveData, kmap);
+	}
+
 	wavebuffer.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	wavebuffer.memprops = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
 	gh->createBuffer(wavebuffer);
+	gh->updateHostCoherentBuffer(wavebuffer, temp);
+	free(temp);
 
-	gh->updateHostCoherentBuffer(wavebuffer, reinterpret_cast<void *>(waves.data()));
+	cnoidalsupplementalbuffer.size = cndata.size() * sizeof(CnoidalSupplementalData);
+	cnoidalsupplementalbuffer.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	cnoidalsupplementalbuffer.memprops = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+	gh->createBuffer(cnoidalsupplementalbuffer);
+	gh->updateHostCoherentBuffer(cnoidalsupplementalbuffer, reinterpret_cast<void *>(cndata.data()));
 }
 
 void Ocean::terminateBuffers() {
+	gh->destroyBuffer(cnoidalsupplementalbuffer);
 	gh->destroyBuffer(wavebuffer);
 	gh->destroyBuffer(vertexbuffer);
 	gh->destroyBuffer(indexbuffer);
@@ -375,7 +399,7 @@ void Ocean::terminateBuffers() {
 void Ocean::initDescriptorSets() {
 	VkDescriptorImageInfo di[2] {
 		{heightmapsampler, heightmap.view, heightmap.layout},
-		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout}
+		{heightmapsampler, waves.back().kmap.view, waves.back().kmap.layout}
 	};
 	gh->createDescriptorSet(
 		graphicsdescriptorset, 
@@ -383,29 +407,35 @@ void Ocean::initDescriptorSets() {
 		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
 		&di[0], nullptr);
 
-	VkDescriptorImageInfo ii[4] = {
+	VkDescriptorImageInfo ii[5] = {
 		{heightmapsampler, heightmap.view, heightmap.layout},
 		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
+		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
 		{heightmapsampler, depthmap.view, depthmap.layout},
-		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
+		{heightmapsampler, waves.back().kmap.view, waves.back().kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
 	};
-	VkDescriptorBufferInfo bi[4] = {
+	VkDescriptorBufferInfo bi[5] = {
 		{VK_NULL_HANDLE, 0u, 0u}, 
 		{wavebuffer.buffer, 0u, VK_WHOLE_SIZE},
+		{cnoidalsupplementalbuffer.buffer, 0u, VK_WHOLE_SIZE},
 		{VK_NULL_HANDLE, 0u, 0u},
 		{VK_NULL_HANDLE, 0u, 0u}
 	};
 	gh->createDescriptorSet(
 		computedescriptorset, 
 		computepipeline.dsl, 
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
 		&ii[0], &bi[0]);
 
 
 	VkDescriptorImageInfo pii[3] = {
 		{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
 		{heightmapsampler, depthmap.view, depthmap.layout},
-		{heightmapsampler, waves.back().linear.kmap.view, waves.back().linear.kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
+		{heightmapsampler, waves.back().kmap.view, waves.back().kmap.layout} // quick & dirty to test tech, TODO: make more functional later!
 	};
 	VkDescriptorBufferInfo pbi[3] = {
 		{wavebuffer.buffer, 0u, VK_WHOLE_SIZE},
@@ -643,8 +673,8 @@ void Ocean::generateDepthMap() {
 			* sqrt(float(x) / float(depthmap.extent.width) * 10.) 
 			* 10. - 30.; 
 			*/
-			// data[x * depthmap.extent.height + y] = -0.5 - pow(10 * (float(y) / depthmap.extent.height - 0.5), 2) - pow(5 * (float(x) / depthmap.extent.width - 0.5), 2);
-			data[x * depthmap.extent.height + y] = 0.;
+			data[x * depthmap.extent.height + y] = -0.5 - pow(10 * (float(y) / depthmap.extent.height - 0.5), 2) - pow(5 * (float(x) / depthmap.extent.width - 0.5), 2);
+			// data[x * depthmap.extent.height + y] = 0.;
 		}
 	}
 	gh->updateImage(depthmap, reinterpret_cast<void*>(data));

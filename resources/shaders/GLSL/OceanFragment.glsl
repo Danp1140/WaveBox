@@ -43,7 +43,7 @@ void main() {
 	color=fresnel*diffuse;
 	color.a=1./fresnel;
 	color = pow((vec4(1) * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
-	color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 100, texture(heightsampler, uv).r);
+	color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 10, texture(heightsampler, uv).r);
 	// color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 200, pos. + 100);
 	// color = diffuse;
 	color.w = 1.;

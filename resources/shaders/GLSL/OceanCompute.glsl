@@ -10,6 +10,7 @@
 
 #define ENCKE_NUM_DIVS 4.
 
+#define CNOIDAL_WAVE_NUM_MACLAURIN_TERMS 6
 #define MACLAURIN_N 6
 
 struct LinearWave {
@@ -17,6 +18,13 @@ struct LinearWave {
 	uint depthtype;
 	vec2 k;
 	float H, omega, d;
+};
+struct CnoidalWave {
+	uint correspondinglinidx;
+	float ellipticalk, bigK;
+	float snMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS], 
+	      cnMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS], 
+	      dnMaclaurinTerms[CNOIDAL_WAVE_NUM_MACLAURIN_TERMS];
 };
 
 layout(push_constant) uniform Constants {
@@ -26,13 +34,14 @@ layout(push_constant) uniform Constants {
 
 layout (binding = 0, r32f) uniform image2D height;
 
-layout (std430, set = 0, binding = 1) buffer WaveBuffer {
+layout (std430, set = 0, binding = 1) readonly buffer LinearWaveBuffer {
 	LinearWave data[];
 } linearwaves;
-
-layout (set = 0, binding = 2) uniform sampler2D depth;
-
-layout (set = 0, binding = 3) uniform sampler2D kmap;
+layout (std430, set = 0, binding = 2) readonly buffer CnoidalWaveBuffer {
+	CnoidalWave data[];
+} cnoidalwaves;
+layout (set = 0, binding = 3) uniform sampler2D depth;
+layout (set = 0, binding = 4) uniform sampler2D kmap;
 
 float fact(int n) {
 	if (n == 0) return 1.;
@@ -81,36 +90,29 @@ const float maclaurinDnTerms[6] = {
 	(1024 * M + 259328 * pow(M, 2) + 1538560 * pow(M, 3) + 870640 * pow(M, 4) + 33212 * pow(M, 5) + pow(M, 6)) / 479001600
 };
 
-float maclaurinSn(float u, float k) {
+float maclaurinSn(float u, uint i) {
 	if (u == 0) return 0;
-	/*
-	return u 
-		 - (1 + pow(k, 2)) * pow(u, 3) / fact(3)
-		 + (1 + 14 * pow(k, 2) + pow(k, 4)) * pow(u, 5) / fact(5);
-		 */
 	float s = 0;
-	for (uint i = 0; i < MACLAURIN_N; i++) {
-		s += maclaurinSnTerms[i] * pow(u, 2 * float(i) + 1);
+	for (uint j = 0; j < MACLAURIN_N; j++) {
+		s += cnoidalwaves.data[i].snMaclaurinTerms[j] * pow(u, 2 * float(j) + 1);
 	}
 	return s;
 }
 
-float maclaurinCn(float u, float k) {
+float maclaurinCn(float u, uint i) {
 	if (u == 0) return 1;
-	// return 1 - pow(u, 2) / fact(2) + (1 + 4 * pow(k, 2)) * pow(u, 4) / fact(4);
 	float c = 0;
-	for (uint i = 0; i < MACLAURIN_N; i++) {
-		c += maclaurinCnTerms[i] * pow(u, 2 * float(i));
+	for (uint j = 0; j < MACLAURIN_N; j++) {
+		c += cnoidalwaves.data[i].cnMaclaurinTerms[j] * pow(u, 2 * float(j));
 	}
 	return c;
 }
 
-float maclaurinDn(float u, float k) {
+float maclaurinDn(float u, uint i) {
 	if (u == 0) return 1;
-	// return 1 - pow(k, 2) * pow(u, 2) / fact(2) + (4 + pow(k, 2)) * pow(k, 2) * pow(u, 4) / fact(4);
 	float d = 0;
-	for (uint i = 0; i < MACLAURIN_N; i++) {
-		d += maclaurinDnTerms[i] * pow(u, 2 * float(i));
+	for (uint j = 0; j < MACLAURIN_N; j++) {
+		d += cnoidalwaves.data[i].dnMaclaurinTerms[j] * pow(u, 2 * float(j));
 	}
 	return d;
 }
@@ -119,6 +121,7 @@ float maclaurinDn(float u, float k) {
 // this method is somewhat slow, but maybe as good as we get in terms of ratio of precision to # ops
 // k is in [0, 1]
 //
+/*
 float cn(float u, float k) {
 	// below is not actual period, its the space u should be transformed into according to the paper were referencing
 	const float period = 1.45126237045 / 4.; // in reality this is K / 4 (this is K(k = 0.5)
@@ -144,10 +147,11 @@ float cn(float u, float k) {
 	}
 	return littlecn;
 }
+*/
 
-float cn2(float u, float k) {
-	// cn is periodic on 4K(k), the std domain for the paper we're referencing is 0 < u < K(k) / 4
-	const float K = 1.45126237045; // precalc'd for k = 0.5
+float cn2(float u, uint i) {
+	const float K = cnoidalwaves.data[i].bigK; 
+	const float k = cnoidalwaves.data[i].ellipticalk;
 	bool neg = false, foldone = false, foldtwo = false, foldthree = false, foldfour = false;
 	// could limit num ops by setting appropriate fold flags and then just doing one modulus at the end...???
 	if (u < 0) {
@@ -172,9 +176,9 @@ float cn2(float u, float k) {
 		u = K / 2 - u;
 	}
 	float littleu = u / pow(2., ENCKE_NUM_DIVS);
-	float littlesn = maclaurinSn(littleu, k),
-	      littlecn = maclaurinCn(littleu, k),
-	      littledn = maclaurinDn(littleu, k);
+	float littlesn = maclaurinSn(littleu, i),
+	      littlecn = maclaurinCn(littleu, i),
+	      littledn = maclaurinDn(littleu, i);
 	float newsn, newcn, newdn;
 	for (uint i = 0; i < ENCKE_NUM_DIVS; i++) {
 		newsn = 2. * littlesn * littlecn * littledn / (1. - k * pow(littlesn, 4.));
@@ -218,24 +222,39 @@ float cn2(float u, float k) {
 
 void main() {
 	const ivec2 gicoords = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
-	// imageStore(height, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y), vec4(0.05 * sin(float(gl_GlobalInvocationID.y) * 0.01 + constants.t * 5.)));
 	if (gl_GlobalInvocationID.z == 0) {
 		imageStore(height, gicoords, vec4(0.));
 	}
-	if (linearwaves.data[gl_GlobalInvocationID.z].wavetype == 0) {
-		LinearWave wave = linearwaves.data[gl_GlobalInvocationID.z];
+	const LinearWave wave = linearwaves.data[gl_GlobalInvocationID.z];
+	if (wave.H / -texture(depth, vec2(gicoords) / X_RESOLUTION).r > 0.78
+		|| texture(depth, vec2(gicoords) / X_RESOLUTION).r >= 0) {
+		imageStore(height, gicoords, vec4(0.));
+		// return;
+	}
+	if (wave.wavetype == 0) {
 		imageStore(
 			height,
 			gicoords,
 			imageLoad(height, gicoords) 
-			// + vec4(wave.H * cos(dot(wave.k, vec2(gicoords) * DX) - wave.omega * constants.t))
-			// + vec4(wave.H * cos(dot(texture(kmap, vec2(gicoords) / X_RESOLUTION).rg, vec2(gicoords) * DX) - wave.omega * constants.t))
-			// + vec4(cn2(float(gicoords.x) / X_RESOLUTION * 1.45126 * 4, 0.5) * 10.)
-			 + vec4(wave.H * pow(cn2(1.45126237045 * 2 * (dot(wave.k, vec2(gicoords) * DX) - wave.omega * constants.t), 0.5), 2))
+			//  + vec4(wave.H * cos(dot(wave.k, vec2(gicoords) * DX) - wave.omega * constants.t))
+			 + vec4(wave.H * cos(dot(texture(kmap, vec2(gicoords) / X_RESOLUTION).rg, vec2(gicoords) * DX) - wave.omega * constants.t))
 		);
-		if (wave.H / -texture(depth, vec2(gicoords) / X_RESOLUTION).r > 0.78
-			|| texture(depth, vec2(gicoords) / X_RESOLUTION).r >= 0 ) {
-			// imageStore(height, gicoords, vec4(0.));
-		}
+	}
+	if (wave.wavetype == 1) {
+		uint cnidx = 0;
+		// for (; cnoidalwaves.data[cnidx].correspondinglinidx == gl_GlobalInvocationID.z; cnidx++) {}
+		imageStore(
+			height,
+			gicoords,
+			imageLoad(height, gicoords) 
+			// + vec4(20)
+			// + vec4(cn2(float(gicoords.x) / X_RESOLUTION * 1.45126 * 4, 0.5) * 100.)
+			 + vec4(wave.H * pow(cn2(
+				// cnoidalwaves.data[cnidx].bigK * 2 * (dot(wave.k, vec2(gicoords) * DX) - wave.omega * constants.t), 
+				cnoidalwaves.data[cnidx].bigK * 2 * (dot(texture(kmap, vec2(gicoords) / X_RESOLUTION).rg, vec2(gicoords) * DX) - wave.omega * constants.t), 
+				cnidx), 
+				2))
+		);
+
 	}
 }

@@ -372,13 +372,13 @@ void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[3] {
 		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		12,
+		13,
 		3, &poolsizes[0]
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
