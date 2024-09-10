@@ -31,22 +31,25 @@ void main() {
 	// float lambertian=max(dot(LIGHT_POSITION, vec3(0., 0., 1.)), 0);
 	// lambertian = 1;
 	vec4 diffuse;
+	/*
 	diffuse = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0.775, 0.825, texture(diffusesampler, uv).r);
 	color = pow((diffuse * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
 	color.w = 1.;
+	*/
 	// diffuse = vec4(0.2, 0.5, 0.9, 1.);
-	diffuse = texture(envsampler, reflect(pos - constants.camerapos, norm));
+	// diffuse = texture(envsampler, reflect(normalize(pos - constants.camerapos), norm));
+	diffuse = texture(envsampler, reflect(normalize(pos - constants.camerapos), vec3(0, 1, 0)));
 	// lots of wasted ops using a vec4 for color only to directly modify w afterward
 	float r0=pow((1.-1.33)/(1.+1.33), 2.);
 	float fresnel=r0+(1.-r0)*pow(1.-dot(-normalize(constants.camerapos - pos), norm), 5.);
 	fresnel=r0+(1.-r0)*pow(1.-dot(-normalize(constants.camerapos - pos), vec3(0, 1, 0)), 5.);
 	color=fresnel*diffuse;
 	color.a=1./fresnel;
-	color = pow((vec4(1) * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
-	color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 10, texture(heightsampler, uv).r);
+	// color = pow((vec4(1) * lambertian + vec4(1.) * specular) / length(LIGHT_POSITION), vec4(1. / 2.2));
+	// color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 10, texture(heightsampler, uv).r);
 	// color = colorRamp(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), 0, 200, pos. + 100);
 	// color = diffuse;
-	color.w = 1.;
+	// color.w = 1.;
 	// color = vec4(1, uv.x, uv.y, 1);
 	// shading the bounds of the disp map
 	// if (distance(pos, vec3(0)) < 5.) color = vec4(0, 0, 0, 1);

@@ -19,9 +19,9 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 	*/
 
 	// LinearWaveData ltemp = LinearWaveData(1, 10, 100, glm::vec2(1, 0));
-	waves.emplace_back(WAVE_TYPE_LINEAR, DEPTH_TYPE_CONSTANT, 0, 10, 100, glm::vec2(1, 1));
-	waves.emplace_back(WAVE_TYPE_CNOIDAL, DEPTH_TYPE_CONSTANT, 1, 50, 100, glm::vec2(1, 0));
-	cndata.emplace_back(1, 0.99);
+	waves.emplace_back(WAVE_TYPE_LINEAR, DEPTH_TYPE_CONSTANT, 1, 10, 1000, glm::vec2(1, 1));
+	waves.emplace_back(WAVE_TYPE_CNOIDAL, DEPTH_TYPE_CONSTANT, 10, 100, 1000, glm::vec2(1, 0));
+	cndata.emplace_back(1, 0.91);
 
 	initRenderpass();
 	initFramebuffer();
@@ -45,7 +45,8 @@ Ocean::Ocean(GH* g) : Drawable(g) {
 }
 
 Ocean::~Ocean() {
-	gh->destroyImage(waves.back().kmap); // again, quick and dirty for quick proof of concept
+	gh->destroyImage(waves[0].kmap); // again, quick and dirty for quick proof of concept
+	gh->destroyImage(waves[1].kmap); // again, quick and dirty for quick proof of concept
 	gh->destroyPipeline(depthpipeline);
 	terminateFramebuffer();
 	terminateRenderpass();
